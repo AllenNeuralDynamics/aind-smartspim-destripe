@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -ex
+# Activate quantification env to solve vtkplotter versioning
+source /opt/conda/etc/profile.d/conda.sh
+conda activate destriper
 
 # This is the master script for the capsule. When you click "Reproducible Run", the code in this file will execute.
 python -u run_capsule.py "$@"
