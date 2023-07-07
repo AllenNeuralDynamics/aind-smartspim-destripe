@@ -4,8 +4,8 @@ Source code to remove streaks from lightsheet images acquired with the SmartSPIM
 
 ![raw data](https://github.com/AllenNeuralDynamics/aind-smartspim-destripe/blob/main/metadata/imgs/raw.png?raw=true)
 
-## Dual-band filtering results
+## Dual-band
 ![dual band filtering](https://github.com/AllenNeuralDynamics/aind-smartspim-destripe/blob/main/metadata/imgs/filtered_dual_band.png?raw=true)
 
 ## Log Space FFT
-![dual band filtering](https://github.com/AllenNeuralDynamics/aind-smartspim-destripe/blob/main/metadata/imgs/filtered_log_space.png?raw=true)
+![log space filtering](https://github.com/AllenNeuralDynamics/aind-smartspim-destripe/blob/main/metadata/imgs/filtered_log_space.png?raw=true)
