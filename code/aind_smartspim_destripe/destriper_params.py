@@ -2,7 +2,7 @@
 Defines the parameters used in the destriping script
 """
 from argschema import ArgSchema
-from argschema.fields import Dict, InputDir, Int, Str
+from argschema.fields import InputDir, Int, Str
 
 
 class DestripingParams(ArgSchema):
@@ -11,13 +11,11 @@ class DestripingParams(ArgSchema):
     """
 
     input_path = InputDir(
-        required=True,
-        metadata={"description": "Path where the data is located"},
+        required=True, metadata={"description": "Path where the data is located"},
     )
 
     output_path = Str(
-        required=True,
-        metadata={"description": "Path where the data will be saved"},
+        required=True, metadata={"description": "Path where the data will be saved"},
     )
 
     workers = Int(

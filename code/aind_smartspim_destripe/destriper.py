@@ -210,7 +210,7 @@ def _find_all_images(
             o = output_path.joinpath(rel_path)
             if not o.exists():
                 o.mkdir(parents=True)
-            img_paths.extend(_find_all_images(p, input_path, output_path, zstep))
+            img_paths.extend(_find_all_images(p, input_path, output_path))
 
     return img_paths
 
@@ -276,13 +276,4 @@ def batch_filter(
     logger.info("Done with batch filtering!")
 
     if os.path.exists(error_path):
-        with open(error_path, "r") as fp:
-            first_line = fp.readline()
-            images = fp.readlines()
-            for image_path in images:
-                interpolate(image_path, input_path, output_path)
-            x = len(images)
-            logger.error(
-                f"{x} images could not be opened and were interpolated.  See destripe log for more details"
-            )
-            fp.close()
+        logger.error(f"An error happened, see destripe log for more details")
