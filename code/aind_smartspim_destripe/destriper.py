@@ -7,14 +7,13 @@ import logging
 import multiprocessing
 import os
 import shutil
+import time
 from pathlib import Path
 from typing import Optional, Union
 
-import numpy as np
-import pywt
+import imageio as iio
+import tifffile
 import tqdm
-from scipy import fftpack
-from skimage import filters
 
 from .filtering import filter_steaks
 from .readers import *
@@ -129,7 +128,7 @@ def read_filter_save(
 
         except:
             if i == n - 1:
-                file_name = os.path.join(output_root_dir, "destripe_log.txt")
+                file_name = os.path.join(output_dir, "destripe_log.txt")
                 if not os.path.exists(file_name):
                     error_file = open(file_name, "w")
                     error_file.write(
@@ -276,4 +275,4 @@ def batch_filter(
     logger.info("Done with batch filtering!")
 
     if os.path.exists(error_path):
-        logger.error(f"An error happened, see destripe log for more details")
+        logger.error("An error happened, see destripe log for more details")
