@@ -82,7 +82,7 @@ def run():
     no_cells_config = {
         "wavelet": "db3",
         "level": None,
-        "sigma": 256,
+        "sigma": 128,
         "max_threshold": 12,
     }
     cells_config = {"wavelet": "db3", "level": None, "sigma": 64, "max_threshold": 3}
