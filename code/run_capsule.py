@@ -1,10 +1,14 @@
 """ Runs the destriping algorithm """
 import json
 import os
+from datetime import datetime
 from glob import glob
 from pathlib import Path
 
-from aind_smartspim_destripe import destriper
+from aind_data_schema import Processing
+from aind_data_schema.processing import (DataProcess, PipelineProcess,
+                                         ProcessName)
+from aind_smartspim_destripe import __version__, destriper
 
 
 def read_json_as_dict(filepath: str) -> dict:
@@ -76,6 +80,91 @@ def get_data_config(
     return derivatives_dict, smartspim_dataset
 
 
+def generate_data_processing(
+    channel_name: str,
+    destripe_version: str,
+    destripe_config: dict,
+    start_time: datetime,
+    end_time: datetime,
+    output_directory: str,
+):
+    """
+    Generates a destriping data processing
+    for the processed channel.
+
+    Paramters
+    -----------
+    channel_name: str
+        SmartSPIM channel to process
+
+    destripe_version: str
+        Destriping version
+
+    input_path: str
+        Path where the images are located
+
+    output_path: str
+        Path where the images are stored
+
+    destripe_config: dict
+        Dictionary with the configuration
+        for the destriping algorithm
+
+    start_time: datetime
+        Time the destriping process
+        started
+
+    end_time: datetime
+        Time the destriping process
+        ended
+
+    output_directory: str
+        Path where we want to store the
+        processing manifest
+
+    """
+    output_directory = os.path.abspath(output_directory)
+
+    if not os.path.exists(output_directory):
+        raise FileNotFoundError(
+            f"Please, check that this folder exists {output_directory}"
+        )
+
+    input_path = destripe_config["input_path"]
+    output_path = destripe_config["output_path"]
+
+    del destripe_config["input_path"]
+    del destripe_config["output_path"]
+
+    destriping_process = Processing(
+        processing_pipeline=PipelineProcess(
+            processor_full_name="Camilo Laiton",
+            pipeline_url="https://github.com/AllenNeuralDynamics/aind-smartspim-pipeline",
+            pipeline_version="1.5.0",
+            data_processes=[
+                DataProcess(
+                    name=ProcessName.IMAGE_DESTRIPING,
+                    software_version=destripe_version,
+                    start_date_time=start_time,
+                    end_date_time=end_time,
+                    input_location=input_path,
+                    output_location=output_path,
+                    code_version=destripe_version,
+                    code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
+                    parameters=destripe_config,
+                    outputs=f"Outputs destriped images in {destripe_config['output_format']} format",
+                    notes=f"Destriping for channel {channel_name}",
+                ),
+            ],
+        )
+    )
+
+    destriping_process.write_standard_file(
+        output_directory=output_directory,
+        prefix=f"image_destriping_{channel_name}",
+    )
+
+
 def run():
     """Validates parameters and runs the destriper"""
 
@@ -113,8 +202,21 @@ def run():
         "output_dtype": None,
     }
 
+    destriping_start_time = datetime.now()
+
     if input_path.is_dir():
         destriper.batch_filter(**parameters)
+
+    destriping_end_time = datetime.now()
+
+    generate_data_processing(
+        channel_name=channel_name,
+        destripe_version=__version__,
+        destripe_config=parameters,
+        start_time=destriping_start_time,
+        end_time=destriping_end_time,
+        output_directory=results_folder,
+    )
 
 
 if __name__ == "__main__":
