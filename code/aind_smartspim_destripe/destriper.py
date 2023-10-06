@@ -9,7 +9,7 @@ import os
 import shutil
 import time
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
 import imageio as iio
 import tifffile
@@ -17,8 +17,7 @@ import tqdm
 
 from .filtering import filter_steaks
 from .readers import *
-
-PathLike = Union[Path, str]
+from .types import PathLike
 
 LOG_FMT = "%(asctime)s %(message)s"
 LOG_DATE_FMT = "%Y-%m-%d %H:%M"
@@ -111,10 +110,52 @@ def read_filter_save(
     output_path: PathLike,
     high_int_filter_params: dict,
     low_int_filter_params: dict,
-    compression: int = 1,
-    output_format: str = None,
-    output_dtype=None,
+    compression: Optional[int] = 1,
+    output_format: Optional[str] = None,
+    output_dtype: Optional[type] = None,
 ):
+    """
+    Function to read an image, filter it
+    and save the filtered result.
+
+    Parameters
+    -----------
+    output_dir: PathLike
+        Output directory where we'll save
+        the filtered images
+
+    input_path: PathLike
+        Input path where the image is stored
+
+    output_path: PathLike
+        Output directory where the image
+        will be saved
+
+    high_int_filter_params: dict
+        Parameters used for the high intensity
+        (images with cells) to remove the
+        horizontal stripes. These avoid ringing
+        artifacts around cells.
+
+    low_int_filter_params: dict
+        Parameters used for the low intensity
+        (images without cells) to remove the
+        horizontal stripes.
+
+    compression: Optional[int]
+        Optional compression parameter
+        used to save an image
+
+    output_format: Optional[str]
+        Optional output format to save the
+        images. Default: None
+        When the default is None, we'll save
+        the output image on tiff format.
+
+    output_dtype: Optional[type]
+        Optional output dtype.
+        Default: Original dtype of the data
+    """
     # Number of retries per file
     n = 3
     for i in range(n):
@@ -221,10 +262,58 @@ def batch_filter(
     chunks: int,
     high_int_filt_params: dict,
     low_int_filt_params: dict,
-    compression: int = 1,
-    output_format: str = None,
-    output_dtype: type = None,
+    compression: Optional[int] = 1,
+    output_format: Optional[str] = None,
+    output_dtype: Optional[type] = None,
 ):
+    """
+    Function to read multiple images,
+    filter them and save the filtered
+    results.
+
+    Parameters
+    -----------
+    input_path: PathLike
+        Input path where the images are stored
+
+    output_path: PathLike
+        Output directory where the image
+        will be saved
+
+    workers: int
+        Number of workers (core units) used to
+        process the images
+
+    chunks: int
+        Number of images that will be split
+        among workers
+
+    high_int_filter_params: dict
+        Parameters used for the high intensity
+        (images with cells) to remove the
+        horizontal stripes. These avoid ringing
+        artifacts around cells.
+
+    low_int_filter_params: dict
+        Parameters used for the low intensity
+        (images without cells) to remove the
+        horizontal stripes.
+
+    compression: Optional[int]
+        Optional compression parameter
+        used to save an image
+
+    output_format: Optional[str]
+        Optional output format to save the
+        images. Default: None
+        When the default is None, we'll save
+        the output image on tiff format.
+
+    output_dtype: Optional[type]
+        Optional output dtype.
+        Default: Original dtype of the data
+    """
+
     error_path = os.path.join(output_path, "destripe_log.txt")
     if os.path.exists(error_path):
         os.remove(error_path)

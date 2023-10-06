@@ -11,11 +11,13 @@ class DestripingParams(ArgSchema):
     """
 
     input_path = InputDir(
-        required=True, metadata={"description": "Path where the data is located"},
+        required=True,
+        metadata={"description": "Path where the data is located"},
     )
 
     output_path = Str(
-        required=True, metadata={"description": "Path where the data will be saved"},
+        required=True,
+        metadata={"description": "Path where the data will be saved"},
     )
 
     workers = Int(

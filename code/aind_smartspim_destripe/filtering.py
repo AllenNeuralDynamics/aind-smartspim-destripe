@@ -2,10 +2,14 @@
 Script where the filtering algorithms are defined
 """
 
+from typing import Optional, Tuple
+
 import numpy as np
 import pywt
 from scipy import fftpack
 from skimage import filters
+
+from .types import PathLike
 
 
 def sigmoid(data: np.array):
@@ -20,13 +24,59 @@ def sigmoid(data: np.array):
     return 1 / (1 + np.exp(-data))
 
 
-def foreground_fraction(img: np.array, center: float, crossover: float):
+def foreground_fraction(img: np.array, center: float, crossover: float) -> float:
+    """
+    Gets the foreground fraction from the image
+    using a sigmoid function.
+
+    Parameters
+    -----------
+    img: np.array
+        Image data
+
+    center: float
+        Intensity value considered to be
+        the center of the image. Use statistical
+        methods for this to get an overall value.
+
+    crossover: float
+        Crossover value to divide
+        img - center
+
+    Returns
+    -----------
+    float
+        Foreground factor
+    """
     z = (img - center) / crossover
     f = sigmoid(z)
     return f
 
 
-def get_foreground_background_mean(img, threshold_mask=0.3):
+def get_foreground_background_mean(
+    img: np.array, threshold_mask: Optional[float] = 0.3
+) -> Tuple:
+    """
+    Gets the foreground and background
+    from an image. This needs to be improved
+    since these values depend on current
+    smartspim datasets.
+
+    Parameters
+    -----------
+    img: np.array
+        Image data
+
+    threshold_mask: Optional[float]
+        Threshold value used to
+        get values as foreground or background.
+
+    Returns
+    -----------
+    Tuple[float, float, np.array]
+        Foreground mean, background mean and
+        image mask looking for cells
+    """
     cell_for = foreground_fraction(img.astype(np.float16), 400, 20)
     cell_for[cell_for > threshold_mask] = 1
     cell_for[cell_for <= threshold_mask] = 0
@@ -63,7 +113,7 @@ def notch(n, sigma):
     if sigma <= 0:
         raise ValueError("sigma must be positive")
     x = np.arange(n)
-    g = 1 - np.exp(-(x ** 2) / (2 * sigma ** 2))
+    g = 1 - np.exp(-(x**2) / (2 * sigma**2))
     return g
 
 
@@ -89,8 +139,41 @@ def gaussian_filter(shape, sigma):
 
 
 def log_space_fft_filtering(
-    input_image, wavelet="db3", level=0, sigma=64, max_threshold=4
+    input_image: np.array,
+    wavelet: Optional[str] = "db3",
+    level: Optional[int] = 0,
+    sigma: Optional[int] = 64,
+    max_threshold: Optional[int] = 4,
 ):
+    """
+    Filtering method to remove horizontal
+    stripes (noise) from light-sheet SmartSPIM
+    datasets using wavelet decomposition.
+
+    The image processing steps are:
+    1. Log function in the image to expand dark
+    values.
+    2. Wavelet decomposition.
+    3. Get horizontal high frequency values from
+    the decomposition.
+    4. Mask the horizontal streaks using otsu
+    thresholding.
+    5. Remove the masked horizontal streaks.
+    6. Compute a Real Fast-Fourier Transform.
+    7. Gaussian filtering on the fft-d image to remove
+    background stripes.
+    8. Compute a reverse Real Fast-Fourier Transform.
+    9. Inverse Discrete Wavelet Transform using
+    the filtered horizonal coefficient but without
+    modifying the vertical or diagonal coefficients.
+    10. Reverse the log space from the fitlered image.
+
+    Returns
+    ----------
+    np.array
+        Image after removing horizontal
+        streaks.
+    """
     input_image_log = np.log(1.0 + input_image)
     coeffs = pywt.wavedec2(input_image_log, wavelet=wavelet, level=level)
     approx = coeffs[0]
@@ -103,7 +186,7 @@ def log_space_fft_filtering(
 
     coeff_filtered = [approx]
     for i, (ch, cv, cd) in enumerate(detail):
-        ch_sq = ch ** 2
+        ch_sq = ch**2
         ch_power = np.sqrt(ch_sq)
 
         otsu_threshold_sqrt = np.sqrt(
@@ -138,7 +221,42 @@ def log_space_fft_filtering(
     return img_filtered
 
 
-def filter_steaks(image, no_cells_config, cells_config, microscope_high_int=2700):
+def filter_steaks(
+    image: np.array,
+    no_cells_config: dict,
+    cells_config: dict,
+    microscope_high_int: Optional[int] = 2700,
+) -> np.array:
+    """
+    Function to apply the desired fitlering
+    function. At the moment, we only apply
+    log space filtering on SmartSPIM datasets.
+
+    Parameters
+    -----------
+    image: np.array
+        Image data to be processed.
+
+    no_cells_config: dict
+        Dictionary with the parameters
+        to clean SmartSPIM images without
+        cells
+
+    cells_config: dict
+        Dictionary with the paramters
+        to clean SmartSPIM images with
+        cells
+
+    microscope_high_int: Optional[it]
+        High intensity output from the microscope.
+        TODO: We need to improve the way how
+        this number is calculated for every dataset
+
+    Returns
+    -----------
+    np.array
+        Filtered image data
+    """
     fore_mean, back_mean, cell_foreground_image = get_foreground_background_mean(image)
     filtered_image = None
 
