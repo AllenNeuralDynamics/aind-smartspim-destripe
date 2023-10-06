@@ -187,7 +187,7 @@ def run():
     input_path_str = f"{data_folder}/{channel_name}"
     input_path = Path(os.path.abspath(input_path_str))
 
-    # Output path will be in /data/{channel_name}
+    # Output path will be in /results/{channel_name}
     output_path = Path(results_folder).joinpath(f"{channel_name}")
 
     parameters = {
