@@ -19,4 +19,4 @@ RUN pip install -U --no-cache-dir \
     PyWavelets==1.4.1 \
     tqdm==4.65.0 \
     pathlib2==2.3.7.post1 \
-    aind-data-schema==0.15.0
+    aind-data-schema==0.15.9
