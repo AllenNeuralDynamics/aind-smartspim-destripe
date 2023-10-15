@@ -159,8 +159,7 @@ def generate_data_processing(
     )
 
     destriping_process.write_standard_file(
-        output_directory=output_directory,
-        prefix=f"image_destriping_{channel_name}",
+        output_directory=output_directory
     )
 
 
