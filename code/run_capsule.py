@@ -136,31 +136,35 @@ def generate_data_processing(
     del destripe_config["input_path"]
     del destripe_config["output_path"]
 
-    destriping_process = Processing(
-        processing_pipeline=PipelineProcess(
-            processor_full_name="Camilo Laiton",
-            pipeline_url="https://github.com/AllenNeuralDynamics/aind-smartspim-pipeline",
-            pipeline_version="1.5.0",
-            data_processes=[
-                DataProcess(
-                    name=ProcessName.IMAGE_DESTRIPING,
-                    software_version=destripe_version,
-                    start_date_time=start_time,
-                    end_date_time=end_time,
-                    input_location=str(input_path),
-                    output_location=str(output_path),
-                    code_version=destripe_version,
-                    code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
-                    parameters=destripe_config,
-                    notes=f"Destriping for channel {channel_name} in {destripe_config['output_format']} format",
-                ),
-            ],
-        )
+    pipeline_process = PipelineProcess(
+        data_processes=[
+            DataProcess(
+                name=ProcessName.IMAGE_DESTRIPING,
+                software_version=destripe_version,
+                start_date_time=start_time,
+                end_date_time=end_time,
+                input_location=str(input_path),
+                output_location=str(output_path),
+                code_version=destripe_version,
+                code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
+                parameters=destripe_config,
+                notes=f"Destriping for channel {channel_name} in {destripe_config['output_format']} format",
+            ),
+        ],
+        processor_full_name="Camilo Laiton",
+        pipeline_url="https://github.com/AllenNeuralDynamics/aind-smartspim-pipeline",
+        pipeline_version="1.5.0",
     )
 
-    destriping_process.write_standard_file(
-        output_directory=output_directory
+    processing = Processing(
+        processing_pipeline=pipeline_process,
+        notes="This processing only contains metadata about destriping \
+        and needs to be compiled with other steps at the end",
     )
+
+    with open(f"{output_directory}/image_destriping_{channel_name}", "w") as f:
+        f.write(processing.json(indent=3))
+
 
 
 def run():
@@ -203,7 +207,7 @@ def run():
     destriping_start_time = datetime.now()
 
     if input_path.is_dir():
-        destriper.batch_filter(**parameters)
+       destriper.batch_filter(**parameters)
 
     destriping_end_time = datetime.now()
 
