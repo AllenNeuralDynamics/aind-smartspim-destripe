@@ -1,10 +1,11 @@
 """
 Utility functions
 """
-import datetime
 import logging
 import multiprocessing
+import platform
 import time
+from datetime import datetime
 from typing import List
 
 import matplotlib.pyplot as plt
@@ -163,3 +164,109 @@ def create_logger(output_log_path: str) -> logging.Logger:
     logger.setLevel(logging.DEBUG)
 
     return logger
+
+
+def get_size(bytes, suffix: str = "B") -> str:
+    """
+    Scale bytes to its proper format
+    e.g:
+        1253656 => '1.20MB'
+        1253656678 => '1.17GB'
+
+    Parameters
+    ----------
+    bytes: bytes
+        Bytes to scale
+
+    suffix: str
+        Suffix used for the conversion
+    """
+    factor = 1024
+    for unit in ["", "K", "M", "G", "T", "P"]:
+        if bytes < factor:
+            return f"{bytes:.2f}{unit}{suffix}"
+        bytes /= factor
+
+
+def print_system_information(logger: logging.Logger):
+    """
+    Prints system information
+
+    Parameters
+    ----------
+    logger: logging.Logger
+        Logger object
+    """
+
+    # System info
+    sep = "=" * 40
+    logger.info(f"{sep} System Information {sep}")
+    uname = platform.uname()
+    logger.info(f"System: {uname.system}")
+    logger.info(f"Node Name: {uname.node}")
+    logger.info(f"Release: {uname.release}")
+    logger.info(f"Version: {uname.version}")
+    logger.info(f"Machine: {uname.machine}")
+    logger.info(f"Processor: {uname.processor}")
+
+    # Boot info
+    logger.info(f"{sep} Boot Time {sep}")
+    boot_time_timestamp = psutil.boot_time()
+    bt = datetime.fromtimestamp(boot_time_timestamp)
+    logger.info(
+        f"Boot Time: {bt.year}/{bt.month}/{bt.day} {bt.hour}:{bt.minute}:{bt.second}"
+    )
+
+    # CPU info
+    logger.info(f"{sep} CPU Info {sep}")
+    # number of cores
+    logger.info(f"Physical cores: {psutil.cpu_count(logical=False)}")
+    logger.info(f"Total cores: {psutil.cpu_count(logical=True)}")
+
+    # CPU frequencies
+    cpufreq = psutil.cpu_freq()
+    logger.info(f"Max Frequency: {cpufreq.max:.2f}Mhz")
+    logger.info(f"Min Frequency: {cpufreq.min:.2f}Mhz")
+    logger.info(f"Current Frequency: {cpufreq.current:.2f}Mhz")
+
+    # CPU usage
+    logger.info("CPU Usage Per Core before processing:")
+    for i, percentage in enumerate(psutil.cpu_percent(percpu=True, interval=1)):
+        logger.info(f"Core {i}: {percentage}%")
+    logger.info(f"Total CPU Usage: {psutil.cpu_percent()}%")
+
+    # Memory info
+    logger.info(f"{sep} Memory Information {sep}")
+    # get the memory details
+    svmem = psutil.virtual_memory()
+    logger.info(f"Total: {get_size(svmem.total)}")
+    logger.info(f"Available: {get_size(svmem.available)}")
+    logger.info(f"Used: {get_size(svmem.used)}")
+    logger.info(f"Percentage: {svmem.percent}%")
+    logger.info(f"{sep} Memory - SWAP {sep}")
+    # get the swap memory details (if exists)
+    swap = psutil.swap_memory()
+    logger.info(f"Total: {get_size(swap.total)}")
+    logger.info(f"Free: {get_size(swap.free)}")
+    logger.info(f"Used: {get_size(swap.used)}")
+    logger.info(f"Percentage: {swap.percent}%")
+
+    # Network information
+    logger.info(f"{sep} Network Information {sep}")
+    # get all network interfaces (virtual and physical)
+    if_addrs = psutil.net_if_addrs()
+    for interface_name, interface_addresses in if_addrs.items():
+        for address in interface_addresses:
+            logger.info(f"=== Interface: {interface_name} ===")
+            if str(address.family) == "AddressFamily.AF_INET":
+                logger.info(f"  IP Address: {address.address}")
+                logger.info(f"  Netmask: {address.netmask}")
+                logger.info(f"  Broadcast IP: {address.broadcast}")
+            elif str(address.family) == "AddressFamily.AF_PACKET":
+                logger.info(f"  MAC Address: {address.address}")
+                logger.info(f"  Netmask: {address.netmask}")
+                logger.info(f"  Broadcast MAC: {address.broadcast}")
+    # get IO statistics since boot
+    net_io = psutil.net_io_counters()
+    logger.info(f"Total Bytes Sent: {get_size(net_io.bytes_sent)}")
+    logger.info(f"Total Bytes Received: {get_size(net_io.bytes_recv)}")
