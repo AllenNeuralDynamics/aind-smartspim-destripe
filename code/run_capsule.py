@@ -164,7 +164,9 @@ def generate_data_processing(
         and needs to be compiled with other steps at the end",
     )
 
-    with open(f"{output_directory}/image_destriping_{channel_name}_processing.json", "w") as f:
+    with open(
+        f"{output_directory}/image_destriping_{channel_name}_processing.json", "w"
+    ) as f:
         f.write(processing.json(indent=3))
 
 
