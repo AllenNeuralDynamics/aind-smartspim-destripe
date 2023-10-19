@@ -1,5 +1,6 @@
 """ Runs the destriping algorithm """
 import json
+import multiprocessing
 import os
 from datetime import datetime
 from glob import glob
@@ -9,6 +10,7 @@ from aind_data_schema import Processing
 from aind_data_schema.processing import (DataProcess, PipelineProcess,
                                          ProcessName)
 from aind_smartspim_destripe import __version__, destriper
+from aind_smartspim_destripe.utils import utils
 
 
 def read_json_as_dict(filepath: str) -> dict:
@@ -166,7 +168,6 @@ def generate_data_processing(
         f.write(processing.json(indent=3))
 
 
-
 def run():
     """Validates parameters and runs the destriper"""
 
@@ -192,6 +193,28 @@ def run():
     # Output path will be in /results/{channel_name}
     output_path = Path(results_folder).joinpath(f"{channel_name}")
 
+    logger = utils.create_logger(output_log_path=results_folder)
+    utils.print_system_information(logger)
+
+    # Tracking compute resources
+    # Subprocess to track used resources
+    manager = multiprocessing.Manager()
+    time_points = manager.list()
+    cpu_percentages = manager.list()
+    memory_usages = manager.list()
+
+    profile_process = multiprocessing.Process(
+        target=utils.profile_resources,
+        args=(
+            time_points,
+            cpu_percentages,
+            memory_usages,
+            20,
+        ),
+    )
+    profile_process.daemon = True
+    profile_process.start()
+
     parameters = {
         "input_path": input_path,
         "output_path": output_path,
@@ -207,7 +230,7 @@ def run():
     destriping_start_time = datetime.now()
 
     if input_path.is_dir():
-       destriper.batch_filter(**parameters)
+        destriper.batch_filter(**parameters)
 
     destriping_end_time = datetime.now()
 
@@ -219,6 +242,18 @@ def run():
         end_time=destriping_end_time,
         output_directory=results_folder,
     )
+
+    # Getting tracked resources and plotting image
+    utils.stop_child_process(profile_process)
+
+    if len(time_points):
+        utils.generate_resources_graphs(
+            time_points,
+            cpu_percentages,
+            memory_usages,
+            results_folder,
+            "smartspim_destripe",
+        )
 
 
 if __name__ == "__main__":

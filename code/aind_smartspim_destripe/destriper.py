@@ -81,8 +81,14 @@ def imsave(path, img, compression=1, output_format: Optional[str] = None):
         elif extension == ".tif" or extension == ".tiff":
             # tifffile.imsave(path, img, compress=compression) # Use with versions <= 2020.9.3
             tifffile.imsave(
-                path, img, compressionargs={"level": compression}
+                os.path.splitext(path)[0] + ".tiff",
+                img,
+                compressionargs={"level": compression},
             )  # Use with version 2023.03.21
+        else:
+            raise NotImplementedError(
+                f"We can't save in {extension} format, available: {SUPPORTED_OUTPUT_EXTENSIONS}"
+            )
 
     else:
         # Saving output images based on the output format
@@ -95,7 +101,7 @@ def imsave(path, img, compression=1, output_format: Optional[str] = None):
         if output_format == ".tif" or output_format == ".tiff":
             # tifffile.imsave(filename, img, compress=compression) # Use with versions <= 2020.9.3
             tifffile.imsave(
-                path, img, compressionargs={"level": compression}
+                filename, img, compressionargs={"level": compression}
             )  # Use with version 2023.03.21
 
         elif output_format == ".png":
