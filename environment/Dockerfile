@@ -21,4 +21,5 @@ RUN pip install -U --no-cache-dir \
     pathlib2==2.3.7.post1 \
     aind-data-schema==0.15.9 \
     matplotlib==3.7.3 \
-    psutil==5.9.5
+    psutil==5.9.5 \
+    git+https://github.com/imageio/imageio.git
