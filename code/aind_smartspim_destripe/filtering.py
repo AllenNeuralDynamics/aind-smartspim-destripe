@@ -2,7 +2,7 @@
 Script where the filtering algorithms are defined
 """
 
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import pywt
@@ -221,10 +221,60 @@ def log_space_fft_filtering(
     return img_filtered
 
 
+def filter_smartspim_shadows(
+    image_tiles: List[np.array],
+    flatfield: np.array,
+    darkfield: np.array,
+    baseline: Optional[np.array] = None,
+) -> np.array:
+    """
+    Corrects smartspim shadows in the tiles generated
+    at the SmartSPIM light-sheet microscope.
+
+    Parameters
+    ----------
+
+    image_tiles: List[np.array]
+        Image tiles that will be corrected
+
+    flatfield: np.array
+        Estimated flatfield
+
+    darkfield: np.array
+        Estimated darkfield
+
+    baseline: np.array
+        Estimated baseline.
+        Default: None
+
+    Returns
+    -------
+    np.array
+        Corrected tiles
+    """
+
+    image_tiles = np.array(image_tiles)
+
+    if image_tiles.ndim != flatfield.ndim:
+        flatfield = np.expand_dims(flatfield, axis=0)
+
+    if image_tiles.ndim != darkfield.ndim:
+        darkfield = np.expand_dims(darkfield, axis=0)
+
+    if baseline is None:
+        baseline = np.zeros((image_tiles.shape[0],))
+
+    baseline_indxs = tuple([slice(None)] + ([np.newaxis] * (image_tiles.ndim - 1)))
+    corrected_tiles = (image_tiles - darkfield) / flatfield - baseline[baseline_indxs]
+    corrected_tiles = np.clip(corrected_tiles, 0, 65535).astype("uint16")
+    return corrected_tiles  # .astype(np.uint16)
+
+
 def filter_steaks(
     image: np.array,
     no_cells_config: dict,
     cells_config: dict,
+    shadow_correction: Optional[dict] = None,
     microscope_high_int: Optional[int] = 2700,
 ) -> np.array:
     """
@@ -266,5 +316,17 @@ def filter_steaks(
     else:
         # it's an image without cells
         filtered_image = log_space_fft_filtering(input_image=image, **no_cells_config)
+
+    # Filtering shadows if provided
+    if shadow_correction:
+        flatfield = shadow_correction["flatfield"]
+        darkfield = shadow_correction["darkfield"]
+
+        filtered_image = filter_smartspim_shadows(
+            image_tiles=filtered_image,
+            flatfield=flatfield,
+            darkfield=darkfield,
+            baseline=None,
+        )
 
     return filtered_image

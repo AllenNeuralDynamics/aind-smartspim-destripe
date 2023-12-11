@@ -6,9 +6,12 @@ from datetime import datetime
 from glob import glob
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 from aind_data_schema import Processing
 from aind_data_schema.processing import (DataProcess, PipelineProcess,
                                          ProcessName)
+
+import aind_smartspim_destripe.flatfield_estimation as flat_est
 from aind_smartspim_destripe import __version__, destriper
 from aind_smartspim_destripe.utils import utils
 
@@ -217,6 +220,54 @@ def run():
     profile_process.daemon = True
     profile_process.start()
 
+    # Estimating flat field and dark field
+    folder_structure = utils.read_image_directory_structure(data_folder)
+
+    shading_parameters = {
+        "get_darkfield": True,
+        "smoothness_flatfield": 1.0,
+        "smoothness_darkfield": 20,
+        "sort_intensity": True,
+        "max_reweight_iterations": 35,
+        # "resize_mode":"skimage_dask"
+    }
+
+    channel_path = list(folder_structure.keys())[0]
+    cols = list(folder_structure[channel_path].keys())
+    rows = [row for row in list(folder_structure[channel_path][cols[0]].keys())]
+    n_cols = len(cols)
+    n_rows = len(rows)
+    len_stack = len(folder_structure[channel_path][cols[0]][rows[0]])
+
+    slide_idxs = [len_stack // 5, len_stack // 3, len_stack // 2, int(len_stack // 1.5)]
+    logger.info(f"Using slides {slide_idxs} for flatfield and darkfield estimation")
+
+    # Estimating flatfields and darkfields per slide
+    shading_correction_per_slide = flat_est.slide_flat_estimation(
+        folder_structure,
+        channel_path,
+        slide_idxs,
+        shading_parameters,
+        no_cells_config,
+        cells_config,
+    )
+
+    flatfields = []
+    darkfields = []
+    baselines = []
+
+    # Unifying fields with median
+    for slide_idx, fields in shading_correction_per_slide.items():
+        flatfields.append(fields["flatfield"])
+        darkfields.append(fields["darkfield"])
+        baselines.append(fields["baseline"])
+
+    mode = "median"
+    logger.info(f"Unifying fields using {mode} mode.")
+    flatfield, darkfield, baseline = flat_est.unify_fields(
+        flatfields, darkfields, baselines, mode=mode
+    )
+
     parameters = {
         "input_path": input_path,
         "output_path": output_path,
@@ -227,15 +278,18 @@ def run():
         "compression": 1,
         "output_format": ".tiff",
         "output_dtype": None,
+        "shadow_correction": {"flatfield": flatfield, "darkfield": darkfield},
     }
 
     destriping_start_time = datetime.now()
 
     if input_path.is_dir():
+        logger.info("Starting destriping")
         destriper.batch_filter(**parameters)
 
     destriping_end_time = datetime.now()
 
+    del parameters["shadow_correction"]
     generate_data_processing(
         channel_name=channel_name,
         destripe_version=__version__,

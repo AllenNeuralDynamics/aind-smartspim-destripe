@@ -7,10 +7,12 @@ import os
 import platform
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import List
 
 import matplotlib.pyplot as plt
 import psutil
+from natsort import natsorted
 
 
 def profile_resources(
@@ -304,3 +306,58 @@ def print_system_information(logger: logging.Logger):
     net_io = psutil.net_io_counters()
     logger.info(f"Total Bytes Sent: {get_size(net_io.bytes_sent)}")
     logger.info(f"Total Bytes Received: {get_size(net_io.bytes_recv)}")
+
+
+def read_image_directory_structure(folder_dir) -> dict:
+    """
+    Creates a dictionary representation of all the images
+    saved by folder/col_N/row_N/images_N.[file_extention]
+
+    Parameters
+    ------------------------
+    folder_dir:PathLike
+        Path to the folder where the images are stored
+
+    Returns
+    ------------------------
+    dict:
+        Dictionary with the image representation where:
+        {channel_1: ... {channel_n: {col_1: ... col_n: {row_1: ... row_n: [image_0, ..., image_n]} } } }
+    """
+
+    directory_structure = {}
+    folder_dir = Path(folder_dir)
+
+    channel_paths = natsorted(
+        [
+            folder_dir.joinpath(folder)
+            for folder in os.listdir(folder_dir)
+            if os.path.isdir(folder_dir.joinpath(folder))
+        ]
+    )
+
+    cols = natsorted(os.listdir(channel_paths[0]))
+    column_example = channel_paths[0].joinpath(cols[0])
+    rows = natsorted(os.listdir(column_example))
+    images = natsorted(os.listdir(column_example.joinpath(rows[0])))
+
+    for channel_idx in range(len(channel_paths)):
+        directory_structure[channel_paths[channel_idx]] = {}
+
+        for col in cols:
+            possible_col = channel_paths[channel_idx].joinpath(col)
+
+            if os.path.isdir(possible_col):
+                directory_structure[channel_paths[channel_idx]][col] = {}
+
+                for row in rows:
+                    possible_row = (
+                        channel_paths[channel_idx].joinpath(col).joinpath(row)
+                    )
+
+                    if os.path.isdir(possible_row):
+                        directory_structure[channel_paths[channel_idx]][col][
+                            row
+                        ] = images
+
+    return directory_structure

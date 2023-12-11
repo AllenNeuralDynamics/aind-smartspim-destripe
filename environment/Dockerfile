@@ -22,4 +22,6 @@ RUN pip install -U --no-cache-dir \
     aind-data-schema==0.15.9 \
     matplotlib==3.7.3 \
     psutil==5.9.5 \
+    BaSiCPy==1.1.0 \
+    natsort==8.4.0 \
     git+https://github.com/imageio/imageio.git
