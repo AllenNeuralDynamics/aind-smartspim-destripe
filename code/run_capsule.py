@@ -229,8 +229,6 @@ def run():
         "smoothness_darkfield": 20,
         "sort_intensity": True,
         "max_reweight_iterations": 35,
-        "autosegment": True,
-        "autosegment_margin": 3,
         # "resize_mode":"skimage_dask"
     }
 
