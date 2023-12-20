@@ -7,10 +7,8 @@ from glob import glob
 from pathlib import Path
 
 import aind_smartspim_destripe.flatfield_estimation as flat_est
-import matplotlib.pyplot as plt
-from aind_data_schema import Processing
-from aind_data_schema.processing import (DataProcess, PipelineProcess,
-                                         ProcessName)
+from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
+                                              Processing, ProcessName)
 from aind_smartspim_destripe import __version__, destriper
 from aind_smartspim_destripe.utils import utils
 
