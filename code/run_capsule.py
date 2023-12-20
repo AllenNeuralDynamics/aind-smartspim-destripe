@@ -6,12 +6,11 @@ from datetime import datetime
 from glob import glob
 from pathlib import Path
 
+import aind_smartspim_destripe.flatfield_estimation as flat_est
 import matplotlib.pyplot as plt
 from aind_data_schema import Processing
 from aind_data_schema.processing import (DataProcess, PipelineProcess,
                                          ProcessName)
-
-import aind_smartspim_destripe.flatfield_estimation as flat_est
 from aind_smartspim_destripe import __version__, destriper
 from aind_smartspim_destripe.utils import utils
 
@@ -137,9 +136,12 @@ def generate_data_processing(
 
     input_path = destripe_config["input_path"]
     output_path = destripe_config["output_path"]
+    shadow_correction_params = destripe_config["shadow_correction"]
+    note_shadow_correction = "The flats were computed from the data with basicpy, these were applied with the destriping algorithm"
 
     del destripe_config["input_path"]
     del destripe_config["output_path"]
+    del destripe_config["shadow_correction"]
 
     pipeline_process = PipelineProcess(
         data_processes=[
@@ -154,6 +156,18 @@ def generate_data_processing(
                 code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
                 parameters=destripe_config,
                 notes=f"Destriping for channel {channel_name} in {destripe_config['output_format']} format",
+            ),
+            DataProcess(
+                name=ProcessName.IMAGE_FLATFIELD_CORRECTION,
+                software_version=destripe_version,
+                start_date_time=start_time,
+                end_date_time=end_time,
+                input_location=str(input_path),
+                output_location=str(output_path),
+                code_version=destripe_version,
+                code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
+                parameters=shadow_correction_params,
+                notes=note_shadow_correction,
             ),
         ],
         processor_full_name="Camilo Laiton",
@@ -219,6 +233,8 @@ def run():
     )
     profile_process.daemon = True
     profile_process.start()
+
+    # Check if we have flat field and dark field
 
     # Estimating flat field and dark field
     folder_structure = utils.read_image_directory_structure(data_folder)
@@ -289,7 +305,6 @@ def run():
 
     destriping_end_time = datetime.now()
 
-    del parameters["shadow_correction"]
     generate_data_processing(
         channel_name=channel_name,
         destripe_version=__version__,
