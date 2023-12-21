@@ -182,7 +182,7 @@ def generate_data_processing(
     with open(
         f"{output_directory}/image_destriping_{channel_name}_processing.json", "w"
     ) as f:
-        f.write(processing.json(indent=3))
+        f.write(processing.model_dump_json(indent=3))
 
 
 def run():
