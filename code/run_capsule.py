@@ -303,6 +303,9 @@ def run():
 
     destriping_end_time = datetime.now()
 
+    # Overwriting shadow correction estimated fields with shading parameters
+    # To save them in processing.json
+    parameters["shadow_correction"] = shading_parameters
     generate_data_processing(
         channel_name=channel_name,
         destripe_version=__version__,
