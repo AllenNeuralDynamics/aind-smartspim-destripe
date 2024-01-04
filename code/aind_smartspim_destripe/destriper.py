@@ -116,6 +116,7 @@ def read_filter_save(
     output_path: PathLike,
     high_int_filter_params: dict,
     low_int_filter_params: dict,
+    shadow_correction: dict,
     compression: Optional[int] = 1,
     output_format: Optional[str] = None,
     output_dtype: Optional[type] = None,
@@ -194,6 +195,7 @@ def read_filter_save(
         image=raw_image,
         no_cells_config=low_int_filter_params,
         cells_config=high_int_filter_params,
+        shadow_correction=shadow_correction,
     )
 
     nb_retry = 10
@@ -268,6 +270,7 @@ def batch_filter(
     chunks: int,
     high_int_filt_params: dict,
     low_int_filt_params: dict,
+    shadow_correction: dict,
     compression: Optional[int] = 1,
     output_format: Optional[str] = None,
     output_dtype: Optional[type] = None,
@@ -353,6 +356,7 @@ def batch_filter(
             "compression": compression,
             "output_format": output_format,
             "output_dtype": output_dtype,
+            "shadow_correction": shadow_correction,
         }
         args.append(arg_dict)
 

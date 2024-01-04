@@ -6,9 +6,9 @@ from datetime import datetime
 from glob import glob
 from pathlib import Path
 
-from aind_data_schema import Processing
-from aind_data_schema.processing import (DataProcess, PipelineProcess,
-                                         ProcessName)
+import aind_smartspim_destripe.flatfield_estimation as flat_est
+from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
+                                              Processing, ProcessName)
 from aind_smartspim_destripe import __version__, destriper
 from aind_smartspim_destripe.utils import utils
 
@@ -134,9 +134,12 @@ def generate_data_processing(
 
     input_path = destripe_config["input_path"]
     output_path = destripe_config["output_path"]
+    shadow_correction_params = destripe_config["shadow_correction"]
+    note_shadow_correction = "The flats were computed from the data with basicpy, these were applied with the destriping algorithm"
 
     del destripe_config["input_path"]
     del destripe_config["output_path"]
+    del destripe_config["shadow_correction"]
 
     pipeline_process = PipelineProcess(
         data_processes=[
@@ -151,6 +154,18 @@ def generate_data_processing(
                 code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
                 parameters=destripe_config,
                 notes=f"Destriping for channel {channel_name} in {destripe_config['output_format']} format",
+            ),
+            DataProcess(
+                name=ProcessName.IMAGE_FLATFIELD_CORRECTION,
+                software_version=destripe_version,
+                start_date_time=start_time,
+                end_date_time=end_time,
+                input_location=str(input_path),
+                output_location=str(output_path),
+                code_version=destripe_version,
+                code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
+                parameters=shadow_correction_params,
+                notes=note_shadow_correction,
             ),
         ],
         processor_full_name="Camilo Laiton",
@@ -167,7 +182,7 @@ def generate_data_processing(
     with open(
         f"{output_directory}/image_destriping_{channel_name}_processing.json", "w"
     ) as f:
-        f.write(processing.json(indent=3))
+        f.write(processing.model_dump_json(indent=3))
 
 
 def run():
@@ -217,6 +232,56 @@ def run():
     profile_process.daemon = True
     profile_process.start()
 
+    # Check if we have flat field and dark field
+
+    # Estimating flat field and dark field
+    folder_structure = utils.read_image_directory_structure(data_folder)
+
+    shading_parameters = {
+        "get_darkfield": True,
+        "smoothness_flatfield": 1.0,
+        "smoothness_darkfield": 20,
+        "sort_intensity": True,
+        "max_reweight_iterations": 35,
+        # "resize_mode":"skimage_dask"
+    }
+
+    channel_path = list(folder_structure.keys())[0]
+    cols = list(folder_structure[channel_path].keys())
+    rows = [row for row in list(folder_structure[channel_path][cols[0]].keys())]
+    n_cols = len(cols)
+    n_rows = len(rows)
+    len_stack = len(folder_structure[channel_path][cols[0]][rows[0]])
+
+    slide_idxs = [len_stack // 5, len_stack // 3, len_stack // 2, int(len_stack // 1.5)]
+    logger.info(f"Using slides {slide_idxs} for flatfield and darkfield estimation")
+
+    # Estimating flatfields and darkfields per slide
+    shading_correction_per_slide = flat_est.slide_flat_estimation(
+        folder_structure,
+        channel_path,
+        slide_idxs,
+        shading_parameters,
+        no_cells_config,
+        cells_config,
+    )
+
+    flatfields = []
+    darkfields = []
+    baselines = []
+
+    # Unifying fields with median
+    for slide_idx, fields in shading_correction_per_slide.items():
+        flatfields.append(fields["flatfield"])
+        darkfields.append(fields["darkfield"])
+        baselines.append(fields["baseline"])
+
+    mode = "median"
+    logger.info(f"Unifying fields using {mode} mode.")
+    flatfield, darkfield, baseline = flat_est.unify_fields(
+        flatfields, darkfields, baselines, mode=mode
+    )
+
     parameters = {
         "input_path": input_path,
         "output_path": output_path,
@@ -227,15 +292,20 @@ def run():
         "compression": 1,
         "output_format": ".tiff",
         "output_dtype": None,
+        "shadow_correction": {"flatfield": flatfield, "darkfield": darkfield},
     }
 
     destriping_start_time = datetime.now()
 
     if input_path.is_dir():
+        logger.info("Starting destriping")
         destriper.batch_filter(**parameters)
 
     destriping_end_time = datetime.now()
 
+    # Overwriting shadow correction estimated fields with shading parameters
+    # To save them in processing.json
+    parameters["shadow_correction"] = shading_parameters
     generate_data_processing(
         channel_name=channel_name,
         destripe_version=__version__,
