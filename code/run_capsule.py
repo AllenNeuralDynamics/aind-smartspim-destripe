@@ -271,14 +271,17 @@ def run():
     darkfields = []
     baselines = []
 
+    flats_dir = f"{results_folder}/flatfield_correction_{channel_name}"
+    utils.create_folder(dest_dir=flats_dir)
+
     # Unifying fields with median
     for slide_idx, fields in shading_correction_per_slide.items():
         flatfields.append(fields["flatfield"])
         darkfields.append(fields["darkfield"])
         baselines.append(fields["baseline"])
-        np.save(f"{results_folder}/flatfield_{slide_idx}.npy", fields["flatfield"])
-        np.save(f"{results_folder}/darkfield_{slide_idx}.npy", fields["darkfield"])
-        np.save(f"{results_folder}/baseline_{slide_idx}.npy", fields["baseline"])
+        np.save(f"{flats_dir}/flatfield_{slide_idx}.npy", fields["flatfield"])
+        np.save(f"{flats_dir}/darkfield_{slide_idx}.npy", fields["darkfield"])
+        np.save(f"{flats_dir}/baseline_{slide_idx}.npy", fields["baseline"])
 
     mode = "median"
     logger.info(f"Unifying fields using {mode} mode.")
@@ -286,9 +289,9 @@ def run():
         flatfields, darkfields, baselines, mode=mode
     )
 
-    np.save(f"{results_folder}/{mode}_flafield.npy", flatfield)
-    np.save(f"{results_folder}/{mode}_darkfield.npy", darkfield)
-    np.save(f"{results_folder}/{mode}_baseline.npy", baseline)
+    np.save(f"{flats_dir}/{mode}_flafield.npy", flatfield)
+    np.save(f"{flats_dir}/{mode}_darkfield.npy", darkfield)
+    np.save(f"{flats_dir}/{mode}_baseline.npy", baseline)
 
     parameters = {
         "input_path": input_path,
