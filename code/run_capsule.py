@@ -203,6 +203,8 @@ def run():
     # Dataset configuration in the processing_manifest.json
     pipeline_config, smartspim_dataset = get_data_config(data_folder=data_folder)
 
+    print(f"Processing dataset {smartspim_dataset}")
+
     # Getting channel -> In the pipeline we must pass SmartSPIM/channel_name to data folder
     channel_name = glob(f"{data_folder}/*/")[0].split("/")[-2]
     input_path_str = f"{data_folder}/{channel_name}"
