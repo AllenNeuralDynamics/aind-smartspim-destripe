@@ -8,7 +8,7 @@ import platform
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import matplotlib.pyplot as plt
 import psutil
@@ -361,3 +361,34 @@ def read_image_directory_structure(folder_dir) -> dict:
                         ] = images
 
     return directory_structure
+
+
+def create_folder(dest_dir: str, verbose: Optional[bool] = False) -> None:
+    """
+    Create new folders.
+
+    Parameters
+    ------------------------
+
+    dest_dir: PathLike
+        Path where the folder will be created if it does not exist.
+
+    verbose: Optional[bool]
+        If we want to show information about the folder status. Default False.
+
+    Raises
+    ------------------------
+
+    OSError:
+        if the folder exists.
+
+    """
+
+    if not (os.path.exists(dest_dir)):
+        try:
+            if verbose:
+                print(f"Creating new directory: {dest_dir}")
+            os.makedirs(dest_dir)
+        except OSError as e:
+            if e.errno != os.errno.EEXIST:
+                raise

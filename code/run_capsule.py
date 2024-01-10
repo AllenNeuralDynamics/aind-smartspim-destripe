@@ -7,6 +7,7 @@ from glob import glob
 from pathlib import Path
 
 import aind_smartspim_destripe.flatfield_estimation as flat_est
+import numpy as np
 from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
                                               Processing, ProcessName)
 from aind_smartspim_destripe import __version__, destriper
@@ -202,6 +203,8 @@ def run():
     # Dataset configuration in the processing_manifest.json
     pipeline_config, smartspim_dataset = get_data_config(data_folder=data_folder)
 
+    print(f"Processing dataset {smartspim_dataset}")
+
     # Getting channel -> In the pipeline we must pass SmartSPIM/channel_name to data folder
     channel_name = glob(f"{data_folder}/*/")[0].split("/")[-2]
     input_path_str = f"{data_folder}/{channel_name}"
@@ -270,17 +273,27 @@ def run():
     darkfields = []
     baselines = []
 
+    flats_dir = f"{results_folder}/flatfield_correction_{channel_name}"
+    utils.create_folder(dest_dir=flats_dir)
+
     # Unifying fields with median
     for slide_idx, fields in shading_correction_per_slide.items():
         flatfields.append(fields["flatfield"])
         darkfields.append(fields["darkfield"])
         baselines.append(fields["baseline"])
+        np.save(f"{flats_dir}/flatfield_{slide_idx}.npy", fields["flatfield"])
+        np.save(f"{flats_dir}/darkfield_{slide_idx}.npy", fields["darkfield"])
+        np.save(f"{flats_dir}/baseline_{slide_idx}.npy", fields["baseline"])
 
     mode = "median"
     logger.info(f"Unifying fields using {mode} mode.")
     flatfield, darkfield, baseline = flat_est.unify_fields(
         flatfields, darkfields, baselines, mode=mode
     )
+
+    np.save(f"{flats_dir}/{mode}_flafield.npy", flatfield)
+    np.save(f"{flats_dir}/{mode}_darkfield.npy", darkfield)
+    np.save(f"{flats_dir}/{mode}_baseline.npy", baseline)
 
     parameters = {
         "input_path": input_path,
