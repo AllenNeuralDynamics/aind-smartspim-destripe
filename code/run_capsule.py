@@ -7,6 +7,7 @@ from glob import glob
 from pathlib import Path
 
 import aind_smartspim_destripe.flatfield_estimation as flat_est
+import numpy as np
 from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
                                               Processing, ProcessName)
 from aind_smartspim_destripe import __version__, destriper
@@ -275,12 +276,19 @@ def run():
         flatfields.append(fields["flatfield"])
         darkfields.append(fields["darkfield"])
         baselines.append(fields["baseline"])
+        np.save(f"{results_folder}/flatfield_{slide_idx}.npy", fields["flatfield"])
+        np.save(f"{results_folder}/darkfield_{slide_idx}.npy", fields["darkfield"])
+        np.save(f"{results_folder}/baseline_{slide_idx}.npy", fields["baseline"])
 
     mode = "median"
     logger.info(f"Unifying fields using {mode} mode.")
     flatfield, darkfield, baseline = flat_est.unify_fields(
         flatfields, darkfields, baselines, mode=mode
     )
+
+    np.save(f"{results_folder}/{mode}_flafield.npy", flatfield)
+    np.save(f"{results_folder}/{mode}_darkfield.npy", darkfield)
+    np.save(f"{results_folder}/{mode}_baseline.npy", baseline)
 
     parameters = {
         "input_path": input_path,

@@ -113,7 +113,7 @@ def notch(n, sigma):
     if sigma <= 0:
         raise ValueError("sigma must be positive")
     x = np.arange(n)
-    g = 1 - np.exp(-(x ** 2) / (2 * sigma ** 2))
+    g = 1 - np.exp(-(x**2) / (2 * sigma**2))
     return g
 
 
@@ -186,7 +186,7 @@ def log_space_fft_filtering(
 
     coeff_filtered = [approx]
     for i, (ch, cv, cd) in enumerate(detail):
-        ch_sq = ch ** 2
+        ch_sq = ch**2
         ch_power = np.sqrt(ch_sq)
 
         otsu_threshold_sqrt = np.sqrt(
