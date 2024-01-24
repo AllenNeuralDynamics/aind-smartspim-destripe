@@ -6,10 +6,11 @@ from datetime import datetime
 from glob import glob
 from pathlib import Path
 
-import aind_smartspim_destripe.flatfield_estimation as flat_est
 import numpy as np
 from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
                                               Processing, ProcessName)
+
+import aind_smartspim_destripe.flatfield_estimation as flat_est
 from aind_smartspim_destripe import __version__, destriper
 from aind_smartspim_destripe.utils import utils
 
@@ -207,6 +208,7 @@ def run():
 
     # Getting channel -> In the pipeline we must pass SmartSPIM/channel_name to data folder
     channel_name = glob(f"{data_folder}/*/")[0].split("/")[-2]
+    derivatives_folder = f"{data_folder}/derivatives"
     input_path_str = f"{data_folder}/{channel_name}"
     input_path = Path(os.path.abspath(input_path_str))
 
@@ -236,64 +238,85 @@ def run():
     profile_process.start()
 
     # Check if we have flat field and dark field
+    darkfield = None
+    flatfield = None
+    if os.path.exists(derivatives_folder):
+        waves = [p for p in channel_name.split("_") if p.isdigit()]
+        flatfields = [
+            g
+            for g in glob(f"{derivatives_folder}/FlatReal{waves[0]}_*.tif")
+            if os.path.exists(g)
+        ]
+        darkfield = derivatives_folder.joinpath("DarkMaster.tif")
 
-    # Estimating flat field and dark field
-    folder_structure = utils.read_image_directory_structure(data_folder)
+        if not derivatives_folder.exists():
+            darkfield = None
 
-    shading_parameters = {
-        "get_darkfield": True,
-        "smoothness_flatfield": 1.0,
-        "smoothness_darkfield": 20,
-        "sort_intensity": True,
-        "max_reweight_iterations": 35,
-        # "resize_mode":"skimage_dask"
-    }
+    if darkfield is None or flatfield is None:
+        logger.info("Flat-fields not found, estimating...")
 
-    channel_path = list(folder_structure.keys())[0]
-    cols = list(folder_structure[channel_path].keys())
-    rows = [row for row in list(folder_structure[channel_path][cols[0]].keys())]
-    n_cols = len(cols)
-    n_rows = len(rows)
-    len_stack = len(folder_structure[channel_path][cols[0]][rows[0]])
+        # Estimating flat field and dark field
+        folder_structure = utils.read_image_directory_structure(data_folder)
 
-    slide_idxs = [len_stack // 5, len_stack // 3, len_stack // 2, int(len_stack // 1.5)]
-    logger.info(f"Using slides {slide_idxs} for flatfield and darkfield estimation")
+        shading_parameters = {
+            "get_darkfield": True,
+            "smoothness_flatfield": 1.0,
+            "smoothness_darkfield": 20,
+            "sort_intensity": True,
+            "max_reweight_iterations": 35,
+            # "resize_mode":"skimage_dask"
+        }
 
-    # Estimating flatfields and darkfields per slide
-    shading_correction_per_slide = flat_est.slide_flat_estimation(
-        folder_structure,
-        channel_path,
-        slide_idxs,
-        shading_parameters,
-        no_cells_config,
-        cells_config,
-    )
+        channel_path = list(folder_structure.keys())[0]
+        cols = list(folder_structure[channel_path].keys())
+        rows = [row for row in list(folder_structure[channel_path][cols[0]].keys())]
+        n_cols = len(cols)
+        n_rows = len(rows)
+        len_stack = len(folder_structure[channel_path][cols[0]][rows[0]])
 
-    flatfields = []
-    darkfields = []
-    baselines = []
+        slide_idxs = [
+            len_stack // 5,
+            len_stack // 3,
+            len_stack // 2,
+            int(len_stack // 1.5),
+        ]
+        logger.info(f"Using slides {slide_idxs} for flatfield and darkfield estimation")
 
-    flats_dir = f"{results_folder}/flatfield_correction_{channel_name}"
-    utils.create_folder(dest_dir=flats_dir)
+        # Estimating flatfields and darkfields per slide
+        shading_correction_per_slide = flat_est.slide_flat_estimation(
+            folder_structure,
+            channel_path,
+            slide_idxs,
+            shading_parameters,
+            no_cells_config,
+            cells_config,
+        )
 
-    # Unifying fields with median
-    for slide_idx, fields in shading_correction_per_slide.items():
-        flatfields.append(fields["flatfield"])
-        darkfields.append(fields["darkfield"])
-        baselines.append(fields["baseline"])
-        np.save(f"{flats_dir}/flatfield_{slide_idx}.npy", fields["flatfield"])
-        np.save(f"{flats_dir}/darkfield_{slide_idx}.npy", fields["darkfield"])
-        np.save(f"{flats_dir}/baseline_{slide_idx}.npy", fields["baseline"])
+        flatfields = []
+        darkfields = []
+        baselines = []
 
-    mode = "median"
-    logger.info(f"Unifying fields using {mode} mode.")
-    flatfield, darkfield, baseline = flat_est.unify_fields(
-        flatfields, darkfields, baselines, mode=mode
-    )
+        flats_dir = f"{results_folder}/flatfield_correction_{channel_name}"
+        utils.create_folder(dest_dir=flats_dir)
 
-    np.save(f"{flats_dir}/{mode}_flafield.npy", flatfield)
-    np.save(f"{flats_dir}/{mode}_darkfield.npy", darkfield)
-    np.save(f"{flats_dir}/{mode}_baseline.npy", baseline)
+        # Unifying fields with median
+        for slide_idx, fields in shading_correction_per_slide.items():
+            flatfields.append(fields["flatfield"])
+            darkfields.append(fields["darkfield"])
+            baselines.append(fields["baseline"])
+            np.save(f"{flats_dir}/flatfield_{slide_idx}.npy", fields["flatfield"])
+            np.save(f"{flats_dir}/darkfield_{slide_idx}.npy", fields["darkfield"])
+            np.save(f"{flats_dir}/baseline_{slide_idx}.npy", fields["baseline"])
+
+        mode = "median"
+        logger.info(f"Unifying fields using {mode} mode.")
+        flatfield, darkfield, baseline = flat_est.unify_fields(
+            flatfields, darkfields, baselines, mode=mode
+        )
+
+        np.save(f"{flats_dir}/{mode}_flafield.npy", flatfield)
+        np.save(f"{flats_dir}/{mode}_darkfield.npy", darkfield)
+        np.save(f"{flats_dir}/{mode}_baseline.npy", baseline)
 
     parameters = {
         "input_path": input_path,
