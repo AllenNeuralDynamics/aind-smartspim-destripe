@@ -15,7 +15,7 @@ import imageio as iio
 import tifffile
 import tqdm
 
-from .filtering import filter_steaks
+from .filtering import filter_stripes
 from .readers import *
 from .types import PathLike
 
@@ -191,8 +191,9 @@ def read_filter_save(
                 time.sleep(0.05)
                 continue
 
-    filtered_image = filter_steaks(
+    filtered_image = filter_stripes(
         image=raw_image,
+        input_path=input_path,
         no_cells_config=low_int_filter_params,
         cells_config=high_int_filter_params,
         shadow_correction=shadow_correction,

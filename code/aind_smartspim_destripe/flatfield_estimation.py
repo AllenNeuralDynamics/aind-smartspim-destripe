@@ -10,7 +10,7 @@ import numpy as np
 from basicpy import BaSiC
 from skimage.io import imread
 
-from .filtering import filter_steaks
+from .filtering import filter_stripes
 
 
 def shading_correction(
@@ -182,7 +182,7 @@ def slide_flat_estimation(
                 names.append(f"{col}_{row}")
                 image_path = f"{channel_name}/{row_col}"
                 data = imread(image_path)
-                data_destriped = filter_steaks(
+                data_destriped = filter_stripes(
                     image=data,
                     no_cells_config=no_cells_config,
                     cells_config=cells_config,
