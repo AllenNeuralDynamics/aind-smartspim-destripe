@@ -419,7 +419,7 @@ def run():
     print(f"Processing dataset {smartspim_dataset}")
 
     # Getting channel -> In the pipeline we must pass SmartSPIM/channel_name to data folder
-    channel_name = glob(f"{data_folder}/SmartSPIM/*/")[0].split("/")[-2]
+    channel_name = glob(f"{data_folder}/*/")[0].split("/")[-2]
     derivatives_folder = Path(f"{data_folder}/derivatives")
     input_path_str = f"{data_folder}/{channel_name}"
     input_path = Path(os.path.abspath(input_path_str))
