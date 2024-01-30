@@ -221,6 +221,52 @@ def log_space_fft_filtering(
     return img_filtered
 
 
+def normalize_image(images: List[np.array]) -> np.ndarray:
+    """
+    Normalizes the images in a range between
+    1.0 and 2.0
+
+    Parameters
+    ----------
+    images: List[np.array]
+        Images to normalize
+
+    Returns
+    -------
+    np.ndarray
+        Normalized image(s)
+    """
+
+    images = np.array(images)
+    min_val = np.min(images)
+    max_val = np.max(images)
+    imgs_minus_min = images - min_val
+    max_min = max_val - min_val
+    normalized_imgs = 1 + np.divide(imgs_minus_min, max_min).astype(np.float16)
+
+    return normalized_imgs
+
+
+def invert_image(image: np.array) -> np.ndarray:
+    """
+    Inverts image signal
+
+    Parameters
+    ----------
+    image: np.array
+        Image data to invert
+
+    Returns
+    -------
+    np.ndarray
+        Inverted image
+    """
+
+    image = np.array(image)
+    inv_image = image.max() - image
+    return inv_image
+
+
 def get_hemisphere_flatfield(
     image_path: str, tile_config: dict, flatfields: List[np.array]
 ) -> np.array:
@@ -255,7 +301,7 @@ def get_hemisphere_flatfield(
         the tiles from the corresponding hemisphere
     """
 
-    splitted_image_path = image_path.split("/")
+    splitted_image_path = str(image_path).split("/")
     XY_location_folders = splitted_image_path[-2].split("_")
     x_folder = XY_location_folders[0]
     y_folder = XY_location_folders[1]
@@ -267,7 +313,7 @@ def get_hemisphere_flatfield(
             f"Please, check the tile config while trying to reach: {x_folder}"
         )
 
-    brain_side = x_folder.get(y_folder)
+    brain_side = tile_config[x_folder].get(y_folder)
 
     if brain_side is None:
         raise KeyError(
@@ -316,12 +362,39 @@ def flatfield_correction(
     if image_tiles.ndim != darkfield.ndim:
         darkfield = np.expand_dims(darkfield, axis=0)
 
+    darkfield = darkfield[: image_tiles.shape[-2], : image_tiles.shape[-1]]
+
+    if darkfield.shape != image_tiles.shape:
+        raise ValueError(
+            f"Please, check the shape of the darkfield. Image shape: {image_tiles.shape} - Darkfield shape: {darkfield.shape}"
+        )
+
+    if flatfield.shape != image_tiles.shape:
+        raise ValueError(
+            f"Please, check the shape of the flatfield. Image shape: {image_tiles.shape} - Flatfield shape: {flatfield.shape}"
+        )
+
     if baseline is None:
         baseline = np.zeros((image_tiles.shape[0],))
 
     baseline_indxs = tuple([slice(None)] + ([np.newaxis] * (image_tiles.ndim - 1)))
-    corrected_tiles = (image_tiles - darkfield) / flatfield - baseline[baseline_indxs]
+
+    # Subtracting dark field
+    negative_darkfield = np.where(image_data <= darkfield)
+    positive_darkfield = np.where(image_data > darkfield)
+
+    # subtracting darkfield
+    image_tiles[negative_darkfield] = 0
+    image_tiles[positive_darkfield] = (
+        image_tiles[positive_darkfield] - darkfield[positive_darkfield]
+    )
+
+    # Applying flatfield
+    corrected_tiles = image_tiles / flatfield - baseline[baseline_indxs]
+
+    # Converting back to uint16
     corrected_tiles = np.clip(corrected_tiles, 0, 65535).astype("uint16")
+
     return corrected_tiles
 
 
@@ -366,6 +439,7 @@ def filter_stripes(
     np.array
         Filtered image data
     """
+
     fore_mean, back_mean, cell_foreground_image = get_foreground_background_mean(image)
     filtered_image = None
 
@@ -384,7 +458,7 @@ def filter_stripes(
         tile_config = shadow_correction.get("tile_config")
 
         # Get the corresponding flatfield from the prospective approach
-        if retrospective:
+        if not retrospective:
             flatfield = get_hemisphere_flatfield(
                 image_path=input_path, tile_config=tile_config, flatfields=flatfield
             )

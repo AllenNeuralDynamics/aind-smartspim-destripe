@@ -308,7 +308,7 @@ def print_system_information(logger: logging.Logger):
     logger.info(f"Total Bytes Received: {get_size(net_io.bytes_recv)}")
 
 
-def read_image_directory_structure(folder_dir) -> dict:
+def read_image_directory_structure(folder_dir: str) -> dict:
     """
     Creates a dictionary representation of all the images
     saved by folder/col_N/row_N/images_N.[file_extention]

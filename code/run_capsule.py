@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from glob import glob
 from pathlib import Path
+from typing import List, Optional, Tuple
 
 import aind_smartspim_destripe.flatfield_estimation as flat_est
 import numpy as np
@@ -13,40 +14,48 @@ import tifffile as tif
 from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
                                               Processing, ProcessName)
 from aind_smartspim_destripe import __version__, destriper
+from aind_smartspim_destripe.filtering import invert_image, normalize_image
 from aind_smartspim_destripe.utils import utils
+from natsort import natsorted
 
 
 def read_json_as_dict(filepath: str) -> dict:
     """
     Reads a json as dictionary.
-
     Parameters
     ------------------------
-
     filepath: PathLike
         Path where the json is located.
-
     Returns
     ------------------------
-
     dict:
         Dictionary with the data the json has.
-
     """
 
     dictionary = {}
 
     if os.path.exists(filepath):
-        with open(filepath) as json_file:
-            dictionary = json.load(json_file)
+        try:
+            with open(filepath) as json_file:
+                dictionary = json.load(json_file)
+
+        except UnicodeDecodeError:
+            print("Error reading json with utf-8, trying different approach")
+            # This might lose data, verify with Jeff the json encoding
+            with open(filepath, "rb") as json_file:
+                data = json_file.read()
+                data_str = data.decode("utf-8", errors="ignore")
+                dictionary = json.loads(data_str)
+
+    #             print(f"Reading {filepath} forced: {dictionary}")
 
     return dictionary
 
 
 def get_data_config(
     data_folder: str,
-    processing_manifest_path: str = "processing_manifest.json",
-    data_description_path: str = "data_description.json",
+    processing_manifest_path: Optional[str] = "processing_manifest.json",
+    data_description_path: Optional[str] = "data_description.json",
 ):
     """
     Returns the first smartspim dataset found
@@ -57,10 +66,10 @@ def get_data_config(
     data_folder: str
         Path to the folder that contains the data
 
-    processing_manifest_path: str
+    processing_manifest_path: Optional[str]
         Path for the processing manifest
 
-    data_description_path: str
+    data_description_path: Optional[str]
         Path for the data description
 
     Returns
@@ -205,7 +214,40 @@ def get_retrospective_flatfield_correction(
     cells_config: dict,
     shading_parameters: dict,
     logger: logging.Logger,
-):
+) -> Tuple[np.ndarray]:
+    """
+    Estimates the flatfields from 4 slides distributed
+    along the entire volume.
+
+    Parameters
+    ---------
+    data_folder: str
+        Folder where the channel data is located.
+
+    flats_dir: str
+        Path where the estimated flats will be written.
+
+    no_cells_config: dict
+        Dictionary with the configuration to filter the
+        tiles that have no cells in them.
+
+    cells_config: dict
+        Dictionary with the configuration to filter the
+        tiles that have cells in them.
+
+    shading_parameters: dict
+        Parameters to estimate the flatfields
+
+    logger: logging.Logger
+        Logging object
+
+    Returns
+    -------
+    Tuple[np.ndarray]
+        Tuple with the estimated flatfield,
+        darkfield and baselines to correct
+        the images
+    """
     # Estimating flat field and dark field
     folder_structure = utils.read_image_directory_structure(data_folder)
 
@@ -243,9 +285,10 @@ def get_retrospective_flatfield_correction(
         flatfields.append(fields["flatfield"])
         darkfields.append(fields["darkfield"])
         baselines.append(fields["baseline"])
-        np.save(f"{flats_dir}/flatfield_{slide_idx}.npy", fields["flatfield"])
-        np.save(f"{flats_dir}/darkfield_{slide_idx}.npy", fields["darkfield"])
-        np.save(f"{flats_dir}/baseline_{slide_idx}.npy", fields["baseline"])
+
+        tif.imwrite(f"{flats_dir}/flatfield_{slide_idx}.tif", fields["flatfield"])
+        tif.imwrite(f"{flats_dir}/darkfield_{slide_idx}.tif", fields["darkfield"])
+        tif.imwrite(f"{flats_dir}/baseline_{slide_idx}.tif", fields["baseline"])
 
     mode = "median"
     logger.info(f"Unifying fields using {mode} mode.")
@@ -253,14 +296,16 @@ def get_retrospective_flatfield_correction(
         flatfields, darkfields, baselines, mode=mode
     )
 
-    np.save(f"{flats_dir}/{mode}_flafield.npy", flatfield)
-    np.save(f"{flats_dir}/{mode}_darkfield.npy", darkfield)
-    np.save(f"{flats_dir}/{mode}_baseline.npy", baseline)
+    tif.imwrite(f"{flats_dir}/{mode}_flafield.tif", flatfield)
+    tif.imwrite(f"{flats_dir}/{mode}_darkfield.tif", darkfield)
+    tif.imwrite(f"{flats_dir}/{mode}_baseline.tif", baseline)
 
     return flatfield, darkfield, baseline
 
 
-def get_microscope_flats(channel_name: str, derivatives_folder: str):
+def get_microscope_flats(
+    channel_name: str, derivatives_folder: str
+) -> Tuple[np.ndarray]:
     """
     Gets the microscope flats
 
@@ -301,7 +346,7 @@ def get_microscope_flats(channel_name: str, derivatives_folder: str):
         # brain hemisphere is correct for each flat
 
         orig_metadata_json = read_json_as_dict(filepath=metadata_json_path)
-        curr_emision_wave = waves[0]
+        curr_emision_wave = int(waves[0])
         tile_config = orig_metadata_json.get("tile_config")
         metadata_json = {}
 
@@ -313,7 +358,7 @@ def get_microscope_flats(channel_name: str, derivatives_folder: str):
         for time_step, value in tile_config.items():
             config_em_wave = value.get("Laser")
 
-            if int(config_em_wave) == int(curr_emision_wave):
+            if int(config_em_wave) == curr_emision_wave:
                 x_folder = value.get("X")
                 y_folder = value.get("Y")
                 brain_side = value.get("Side")  # 0 left hemisphere, 1 right hemisphere
@@ -321,19 +366,24 @@ def get_microscope_flats(channel_name: str, derivatives_folder: str):
                 if x_folder is None or y_folder is None or brain_side is None:
                     raise KeyError("Please, check the data in metadata.json")
 
-                metadata_json[x_folder] = {}
+                if metadata_json.get(x_folder) is None:
+                    metadata_json[x_folder] = {}
+
                 metadata_json[x_folder][y_folder] = int(brain_side)
 
         # The flats are one per hemisphere, we need to check
         # metadata.json to know which tile is in which laser
         flatfield = [
             tif.imread(g)
-            for g in glob(f"{derivatives_folder}/FlatReal{curr_emision_wave}_*.tif")
+            for g in natsorted(
+                glob(f"{derivatives_folder}/FlatReal{curr_emision_wave}_*.tif")
+            )
             if os.path.exists(g)
         ]
+        print("Converting to 16bit")
 
-        # reading flatfields
-        if not len(flatfield):
+        # reading flatfields, we should have 2, one per brain hemisphere
+        if len(flatfield) != 2:
             raise ValueError(
                 f"Error while reading the microscope flatfields: {flatfield}"
             )
@@ -352,11 +402,16 @@ def run():
     }
     cells_config = {"wavelet": "db3", "level": None, "sigma": 64, "max_threshold": 3}
 
+    # Check if we have flat field and dark field
+    darkfield = None
+    flatfield = None
+    tile_config = None  # Used when the flats come from the microscope
+    retrospective = False
+    apply_microscope_flats = False  # If we want to apply the flats from the microscope
+    shading_parameters = {}
+
     results_folder = os.path.abspath("../results")
     data_folder = os.path.abspath("../data")
-
-    metadata_flats_dir = f"{results_folder}/flatfield_correction_{channel_name}"
-    utils.create_folder(dest_dir=metadata_flats_dir)
 
     # Dataset configuration in the processing_manifest.json
     pipeline_config, smartspim_dataset = get_data_config(data_folder=data_folder)
@@ -364,10 +419,13 @@ def run():
     print(f"Processing dataset {smartspim_dataset}")
 
     # Getting channel -> In the pipeline we must pass SmartSPIM/channel_name to data folder
-    channel_name = glob(f"{data_folder}/*/")[0].split("/")[-2]
-    derivatives_folder = f"{data_folder}/derivatives"
+    channel_name = glob(f"{data_folder}/SmartSPIM/*/")[0].split("/")[-2]
+    derivatives_folder = Path(f"{data_folder}/derivatives")
     input_path_str = f"{data_folder}/{channel_name}"
     input_path = Path(os.path.abspath(input_path_str))
+
+    metadata_flats_dir = f"{results_folder}/flatfield_correction_{channel_name}"
+    utils.create_folder(dest_dir=metadata_flats_dir)
 
     # Output path will be in /results/{channel_name}
     output_path = Path(results_folder).joinpath(f"{channel_name}")
@@ -394,35 +452,33 @@ def run():
     profile_process.daemon = True
     profile_process.start()
 
-    # Check if we have flat field and dark field
-    darkfield = None
-    flatfield = None
-    tile_config = None  # Used when the flats come from the microscope
-    retrospective = False
-    shading_parameters = {}
-
     if os.path.exists(derivatives_folder):
         logger.info("Using flat-fields from the microscope")
 
         # Reading darkfield
         darkfield_path = derivatives_folder.joinpath("DarkMaster.tif")
-        if not darkfield_path.exists():
-            darkfield = None
+
+        try:
+            darkfield = tif.imread(str(darkfield_path))
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f"Please, provide the current dark from the microscope! Provided path: {darkfield_path}"
+            )
+
+        if apply_microscope_flats:
+            flatfield, tile_config = get_microscope_flats(
+                channel_name=channel_name,
+                derivatives_folder=derivatives_folder,
+            )
+            # Normalizing and inverting flatfields from the microscope
+            flatfield = normalize_image(flatfield)
+            flatfield = invert_image(flatfield)
 
         else:
-            darkfield = tif.imread(str(darkfield_path))
-
-        flatfield, tile_config = get_microscope_flats(
-            channel_name=channel_name,
-            derivatives_folder=derivatives_folder,
-            logger=logger,
-        )
-
-    if darkfield is None:
-        raise ValueError("Please, provide the current dark from the microscope!")
+            logger.info("Ignoring microscope flats")
 
     if flatfield is None or tile_config is None:
-        logger.info("Microscope flat-fields not found, estimating...")
+        logger.info("Estimating flats with BasicPy...")
         shading_parameters = {
             "get_darkfield": True,
             "smoothness_flatfield": 1.0,
@@ -456,16 +512,17 @@ def run():
         "output_dtype": None,
         "shadow_correction": {
             "retrospective": retrospective,
-            "flatfield": flatfield,
+            "flatfield": flatfield,  # Estimated with basicpy or using the flats from the microscope
             "darkfield": darkfield,  # Coming from the microscope
             "tile_config": tile_config,
         },
     }
 
     destriping_start_time = datetime.now()
-
     if input_path.is_dir():
-        logger.info("Starting destriping")
+        logger.info(
+            f"Starting destriping and flatfielding with restrospective approach? {retrospective}"
+        )
         destriper.batch_filter(**parameters)
 
     destriping_end_time = datetime.now()
