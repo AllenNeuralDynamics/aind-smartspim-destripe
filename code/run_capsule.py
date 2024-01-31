@@ -521,7 +521,7 @@ def run():
     destriping_start_time = datetime.now()
     if input_path.is_dir():
         logger.info(
-            f"Starting destriping and flatfielding with restrospective approach? {retrospective}"
+            f"Starting destriping and flatfielding. Parameters: {parameters}"
         )
         destriper.batch_filter(**parameters)
 
