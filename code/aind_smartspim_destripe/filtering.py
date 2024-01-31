@@ -380,8 +380,8 @@ def flatfield_correction(
     baseline_indxs = tuple([slice(None)] + ([np.newaxis] * (image_tiles.ndim - 1)))
 
     # Subtracting dark field
-    negative_darkfield = np.where(image_data <= darkfield)
-    positive_darkfield = np.where(image_data > darkfield)
+    negative_darkfield = np.where(image_tiles <= darkfield)
+    positive_darkfield = np.where(image_tiles > darkfield)
 
     # subtracting darkfield
     image_tiles[negative_darkfield] = 0
