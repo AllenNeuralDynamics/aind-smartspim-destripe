@@ -184,6 +184,7 @@ def slide_flat_estimation(
                 data = imread(image_path)
                 data_destriped = filter_stripes(
                     image=data,
+                    input_path=image_path,
                     no_cells_config=no_cells_config,
                     cells_config=cells_config,
                 )
