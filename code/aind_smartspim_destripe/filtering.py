@@ -221,7 +221,109 @@ def log_space_fft_filtering(
     return img_filtered
 
 
-def filter_smartspim_shadows(
+def normalize_image(images: List[np.array]) -> np.ndarray:
+    """
+    Normalizes the images in a range between
+    1.0 and 2.0
+
+    Parameters
+    ----------
+    images: List[np.array]
+        Images to normalize
+
+    Returns
+    -------
+    np.ndarray
+        Normalized image(s)
+    """
+
+    images = np.array(images)
+    min_val = np.min(images)
+    max_val = np.max(images)
+    imgs_minus_min = images - min_val
+    max_min = max_val - min_val
+    normalized_imgs = 1 + np.divide(imgs_minus_min, max_min).astype(np.float16)
+
+    return normalized_imgs
+
+
+def invert_image(image: np.array) -> np.ndarray:
+    """
+    Inverts image signal
+
+    Parameters
+    ----------
+    image: np.array
+        Image data to invert
+
+    Returns
+    -------
+    np.ndarray
+        Inverted image
+    """
+
+    image = np.array(image)
+    inv_image = image.max() - image
+    return inv_image
+
+
+def get_hemisphere_flatfield(
+    input_tile_path: str, tile_config: dict, flatfields: List[np.array]
+) -> np.array:
+    """
+    Gets the hemisphere flatfield from the
+    current laser.
+
+    Parameters
+    ----------
+    input_tile_path: str
+        Path where the image data is located.
+
+    tile_config: dict
+        Tile configuration in terms of XY
+        locations and brain side
+
+    flatfields: List[np.array]
+        List of flatfields applied per brain
+        hemisphere. Usually, 2 per laser.
+
+    Raises
+    ------
+    KeyError:
+        Raises whenever we are trying to reach
+        a tile that does not have a configuration
+        brain side.
+
+    Returns
+    -------
+    np.array
+        Flatfield that will be used to correct
+        the tiles from the corresponding hemisphere
+    """
+
+    splitted_input_tile_path = str(input_tile_path).split("/")
+    XY_location_folders = splitted_input_tile_path[-2].split("_")
+    x_folder = XY_location_folders[0]
+    y_folder = XY_location_folders[1]
+
+    x_config = tile_config.get(x_folder)
+
+    if x_config is None:
+        raise KeyError(
+            f"Please, check the tile config while trying to reach: {x_folder}"
+        )
+
+    brain_side = tile_config[x_folder].get(y_folder)
+
+    if brain_side is None:
+        raise KeyError(
+            f"Please, check the tile config while trying to reach: {y_folder}"
+        )
+
+    return flatfields[brain_side]
+
+
+def flatfield_correction(
     image_tiles: List[np.array],
     flatfield: np.array,
     darkfield: np.array,
@@ -233,7 +335,6 @@ def filter_smartspim_shadows(
 
     Parameters
     ----------
-
     image_tiles: List[np.array]
         Image tiles that will be corrected
 
@@ -261,17 +362,45 @@ def filter_smartspim_shadows(
     if image_tiles.ndim != darkfield.ndim:
         darkfield = np.expand_dims(darkfield, axis=0)
 
+    darkfield = darkfield[: image_tiles.shape[-2], : image_tiles.shape[-1]]
+
+    if darkfield.shape != image_tiles.shape:
+        raise ValueError(
+            f"Please, check the shape of the darkfield. Image shape: {image_tiles.shape} - Darkfield shape: {darkfield.shape}"
+        )
+
+    if flatfield.shape != image_tiles.shape:
+        raise ValueError(
+            f"Please, check the shape of the flatfield. Image shape: {image_tiles.shape} - Flatfield shape: {flatfield.shape}"
+        )
+
     if baseline is None:
         baseline = np.zeros((image_tiles.shape[0],))
 
     baseline_indxs = tuple([slice(None)] + ([np.newaxis] * (image_tiles.ndim - 1)))
-    corrected_tiles = (image_tiles - darkfield) / flatfield - baseline[baseline_indxs]
+
+    # Subtracting dark field
+    negative_darkfield = np.where(image_tiles <= darkfield)
+    positive_darkfield = np.where(image_tiles > darkfield)
+
+    # subtracting darkfield
+    image_tiles[negative_darkfield] = 0
+    image_tiles[positive_darkfield] = (
+        image_tiles[positive_darkfield] - darkfield[positive_darkfield]
+    )
+
+    # Applying flatfield
+    corrected_tiles = image_tiles / flatfield - baseline[baseline_indxs]
+
+    # Converting back to uint16
     corrected_tiles = np.clip(corrected_tiles, 0, 65535).astype("uint16")
-    return corrected_tiles  # .astype(np.uint16)
+
+    return corrected_tiles
 
 
-def filter_steaks(
+def filter_stripes(
     image: np.array,
+    input_tile_path: str,
     no_cells_config: dict,
     cells_config: dict,
     shadow_correction: Optional[dict] = None,
@@ -286,6 +415,9 @@ def filter_steaks(
     -----------
     image: np.array
         Image data to be processed.
+
+    input_tile_path: str
+        Path where the image data is located.
 
     no_cells_config: dict
         Dictionary with the parameters
@@ -307,6 +439,7 @@ def filter_steaks(
     np.array
         Filtered image data
     """
+
     fore_mean, back_mean, cell_foreground_image = get_foreground_background_mean(image)
     filtered_image = None
 
@@ -318,11 +451,21 @@ def filter_steaks(
         filtered_image = log_space_fft_filtering(input_image=image, **no_cells_config)
 
     # Filtering shadows if provided
-    if shadow_correction:
-        flatfield = shadow_correction["flatfield"]
-        darkfield = shadow_correction["darkfield"]
+    if shadow_correction is not None:
+        retrospective = shadow_correction.get("retrospective")
+        flatfield = shadow_correction.get("flatfield")
+        darkfield = shadow_correction.get("darkfield")
+        tile_config = shadow_correction.get("tile_config")
 
-        filtered_image = filter_smartspim_shadows(
+        # Get the corresponding flatfield from the prospective approach
+        if not retrospective:
+            flatfield = get_hemisphere_flatfield(
+                input_tile_path=input_tile_path,
+                tile_config=tile_config,
+                flatfields=flatfield,
+            )
+
+        filtered_image = flatfield_correction(
             image_tiles=filtered_image,
             flatfield=flatfield,
             darkfield=darkfield,

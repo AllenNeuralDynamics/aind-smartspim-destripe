@@ -1,6 +1,7 @@
 """
 Defines the parameters used in the destriping script
 """
+
 from argschema import ArgSchema
 from argschema.fields import InputDir, Int, Str
 
