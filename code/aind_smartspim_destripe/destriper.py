@@ -193,7 +193,7 @@ def read_filter_save(
 
     filtered_image = filter_stripes(
         image=raw_image,
-        input_path=input_path,
+        input_tile_path=input_path,
         no_cells_config=low_int_filter_params,
         cells_config=high_int_filter_params,
         shadow_correction=shadow_correction,

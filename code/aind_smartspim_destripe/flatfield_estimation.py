@@ -180,11 +180,11 @@ def slide_flat_estimation(
             for row in rows:
                 row_col = f"{col}/{col}_{row}/{slide_name}"
                 names.append(f"{col}_{row}")
-                image_path = f"{channel_name}/{row_col}"
-                data = imread(image_path)
+                input_tile_path = f"{channel_name}/{row_col}"
+                data = imread(input_tile_path)
                 data_destriped = filter_stripes(
                     image=data,
-                    input_path=image_path,
+                    input_tile_path=input_tile_path,
                     no_cells_config=no_cells_config,
                     cells_config=cells_config,
                 )

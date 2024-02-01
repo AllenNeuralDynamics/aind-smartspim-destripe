@@ -1,4 +1,5 @@
 """ Runs the destriping algorithm """
+
 import json
 import logging
 import multiprocessing
@@ -249,9 +250,13 @@ def get_retrospective_flatfield_correction(
         the images
     """
     # Estimating flat field and dark field
-    folder_structure = utils.read_image_directory_structure(data_folder)
+    folder_structure = utils.read_image_directory_structure(
+        data_folder, "Ex_(\d{3})_Em_(\d{3})$"
+    )
 
     channel_path = list(folder_structure.keys())[0]
+    logger.info(f"Estimating flats from channel path: {channel_path}")
+
     cols = list(folder_structure[channel_path].keys())
     rows = [row for row in list(folder_structure[channel_path][cols[0]].keys())]
     n_cols = len(cols)
@@ -380,7 +385,6 @@ def get_microscope_flats(
             )
             if os.path.exists(g)
         ]
-        print("Converting to 16bit")
 
         # reading flatfields, we should have 2, one per brain hemisphere
         if len(flatfield) != 2:
@@ -419,19 +423,26 @@ def run():
     print(f"Processing dataset {smartspim_dataset}")
 
     # Getting channel -> In the pipeline we must pass SmartSPIM/channel_name to data folder
-    channel_name = glob(f"{data_folder}/*/")[0].split("/")[-2]
-    derivatives_folder = Path(f"{data_folder}/derivatives")
+    channel_name = glob(f"{data_folder}/Ex_*_Em_*/")[0].split("/")[-2]
     input_path_str = f"{data_folder}/{channel_name}"
-    input_path = Path(os.path.abspath(input_path_str))
-
-    metadata_flats_dir = f"{results_folder}/flatfield_correction_{channel_name}"
-    utils.create_folder(dest_dir=metadata_flats_dir)
+    input_channel_path = Path(os.path.abspath(input_path_str))
 
     # Output path will be in /results/{channel_name}
     output_path = Path(results_folder).joinpath(f"{channel_name}")
 
+    # Derivatives path
+    derivatives_folder = Path(f"{data_folder}/derivatives")
+
+    # Metadata output
+    metadata_flats_dir = f"{results_folder}/flatfield_correction_{channel_name}"
+    utils.create_folder(dest_dir=metadata_flats_dir)
+
     logger = utils.create_logger(output_log_path=metadata_flats_dir)
     utils.print_system_information(logger)
+
+    logger.info(f"Input channel: {input_channel_path}")
+    logger.info(f"Output path: {output_path}")
+    logger.info(f"Derivatives folder: {derivatives_folder}")
 
     # Tracking compute resources
     # Subprocess to track used resources
@@ -453,13 +464,13 @@ def run():
     profile_process.start()
 
     if os.path.exists(derivatives_folder):
-        logger.info("Using flat-fields from the microscope")
 
         # Reading darkfield
-        darkfield_path = derivatives_folder.joinpath("DarkMaster.tif")
+        darkfield_path = str(derivatives_folder.joinpath("DarkMaster.tif"))
+        logger.info("Loading darkfield from path: {darkfield_path}")
 
         try:
-            darkfield = tif.imread(str(darkfield_path))
+            darkfield = tif.imread(darkfield_path)
         except FileNotFoundError:
             raise FileNotFoundError(
                 f"Please, provide the current dark from the microscope! Provided path: {darkfield_path}"
@@ -475,7 +486,7 @@ def run():
             flatfield = invert_image(flatfield)
 
         else:
-            logger.info("Ignoring microscope flats")
+            logger.info("Ignoring microscope flats...")
 
     if flatfield is None or tile_config is None:
         logger.info("Estimating flats with BasicPy...")
@@ -500,8 +511,13 @@ def run():
 
     shading_parameters["retrospective"] = retrospective
 
+    logger.info(f"Input channel path: {input_channel_path}")
+
+    if "derivatives" in str(input_channel_path):
+        raise ValueError(f"Unknown problem! Why this? {input_channel_path}")
+
     parameters = {
-        "input_path": input_path,
+        "input_path": input_channel_path,
         "output_path": output_path,
         "workers": 32,
         "chunks": 1,
@@ -517,11 +533,12 @@ def run():
             "tile_config": tile_config,
         },
     }
+    logger.info(f"parameters: {parameters}")
 
     destriping_start_time = datetime.now()
-    if input_path.is_dir():
+    if input_channel_path.is_dir():
         logger.info(
-            f"Starting destriping and flatfielding. Parameters: {parameters}"
+            f"Starting destriping and flatfielding with restrospective approach? {retrospective}"
         )
         destriper.batch_filter(**parameters)
 

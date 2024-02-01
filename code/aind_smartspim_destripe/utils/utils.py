@@ -1,10 +1,12 @@
 """
 Utility functions
 """
+
 import logging
 import multiprocessing
 import os
 import platform
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -308,7 +310,7 @@ def print_system_information(logger: logging.Logger):
     logger.info(f"Total Bytes Received: {get_size(net_io.bytes_recv)}")
 
 
-def read_image_directory_structure(folder_dir: str) -> dict:
+def read_image_directory_structure(folder_dir: str, channel_regex: str) -> dict:
     """
     Creates a dictionary representation of all the images
     saved by folder/col_N/row_N/images_N.[file_extention]
@@ -317,6 +319,9 @@ def read_image_directory_structure(folder_dir: str) -> dict:
     ------------------------
     folder_dir:PathLike
         Path to the folder where the images are stored
+
+    channel_regex: str
+        Regular expression to match the folders
 
     Returns
     ------------------------
@@ -333,8 +338,12 @@ def read_image_directory_structure(folder_dir: str) -> dict:
             folder_dir.joinpath(folder)
             for folder in os.listdir(folder_dir)
             if os.path.isdir(folder_dir.joinpath(folder))
+            and re.search(channel_regex, str(folder))
         ]
     )
+
+    if not len(channel_paths):
+        raise ValueError(f"No channels found in path: {folder_dir}")
 
     cols = natsorted(os.listdir(channel_paths[0]))
     column_example = channel_paths[0].joinpath(cols[0])

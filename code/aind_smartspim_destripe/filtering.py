@@ -268,7 +268,7 @@ def invert_image(image: np.array) -> np.ndarray:
 
 
 def get_hemisphere_flatfield(
-    image_path: str, tile_config: dict, flatfields: List[np.array]
+    input_tile_path: str, tile_config: dict, flatfields: List[np.array]
 ) -> np.array:
     """
     Gets the hemisphere flatfield from the
@@ -276,7 +276,7 @@ def get_hemisphere_flatfield(
 
     Parameters
     ----------
-    image_path: str
+    input_tile_path: str
         Path where the image data is located.
 
     tile_config: dict
@@ -301,8 +301,8 @@ def get_hemisphere_flatfield(
         the tiles from the corresponding hemisphere
     """
 
-    splitted_image_path = str(image_path).split("/")
-    XY_location_folders = splitted_image_path[-2].split("_")
+    splitted_input_tile_path = str(input_tile_path).split("/")
+    XY_location_folders = splitted_input_tile_path[-2].split("_")
     x_folder = XY_location_folders[0]
     y_folder = XY_location_folders[1]
 
@@ -400,7 +400,7 @@ def flatfield_correction(
 
 def filter_stripes(
     image: np.array,
-    input_path: str,
+    input_tile_path: str,
     no_cells_config: dict,
     cells_config: dict,
     shadow_correction: Optional[dict] = None,
@@ -416,7 +416,7 @@ def filter_stripes(
     image: np.array
         Image data to be processed.
 
-    input_path: str
+    input_tile_path: str
         Path where the image data is located.
 
     no_cells_config: dict
@@ -460,7 +460,9 @@ def filter_stripes(
         # Get the corresponding flatfield from the prospective approach
         if not retrospective:
             flatfield = get_hemisphere_flatfield(
-                image_path=input_path, tile_config=tile_config, flatfields=flatfield
+                input_tile_path=input_tile_path,
+                tile_config=tile_config,
+                flatfields=flatfield,
             )
 
         filtered_image = flatfield_correction(
