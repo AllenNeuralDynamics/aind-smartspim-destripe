@@ -466,7 +466,7 @@ def run():
     if os.path.exists(derivatives_folder):
 
         # Reading darkfield
-        darkfield_path = str(derivatives_folder.joinpath("DarkMaster.tif"))
+        darkfield_path = str(derivatives_folder.joinpath("DarkMaster_cropped.tif"))
         logger.info("Loading darkfield from path: {darkfield_path}")
 
         try:
