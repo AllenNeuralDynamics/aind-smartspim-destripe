@@ -264,8 +264,16 @@ def get_retrospective_flatfield_correction(
     len_stack = len(folder_structure[channel_path][cols[0]][rows[0]])
 
     slide_idxs = [
+        len_stack // 7,
+        int(len_stack // 6.5),
+        len_stack // 6,
+        int(len_stack // 5.5),
         len_stack // 5,
+        int(len_stack // 4.5),
+        len_stack // 4,
+        int(len_stack // 3.5),
         len_stack // 3,
+        int(len_stack // 2.5),
         len_stack // 2,
         int(len_stack // 1.5),
     ]
