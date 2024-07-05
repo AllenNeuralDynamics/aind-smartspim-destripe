@@ -179,7 +179,10 @@ def log_space_fft_filtering(
     approx = coeffs[0]
     detail = coeffs[1:]
 
-    width_fraction = sigma / input_image.shape[0]
+    width_fraction = sigma / min(input_image.shape)
+
+    if len(input_image.shape) == 3:
+        width_fraction = sigma / min(input_image.shape[1:])
 
     # print(f"Parameters: Wavelet {wavelet} coeffs: {coeffs} levels: {nb_levels}")
     # print(f"max threshold value: {max_threshold} sigma {sigma} width fraction {width_fraction}")
@@ -194,20 +197,25 @@ def log_space_fft_filtering(
         )  # threshold_otsu(ch_sq)
         threshold = min(max_threshold, otsu_threshold_sqrt)
 
-        # print(f"Otsu threshold: {otsu_threshold_sqrt} - provided threshold {max_threshold}")
-        # print(f"Selected threshold: {threshold}")
-
         mask = ch_power > threshold
         foreground = ch * mask
         background = ch * (1 - mask)
 
+        bg_axis = -1  # if background.shape == 2 else 0
         background_means = np.broadcast_to(
-            np.median(background, axis=-1)[:, np.newaxis], ch.shape
+            np.median(background, axis=bg_axis)[..., np.newaxis], ch.shape
         )
+
         background_inpainted = background + background_means * mask
 
         fft = fftpack.rfft(background_inpainted, axis=-1)
-        s = fft.shape[0] * width_fraction
+
+        s_shape = fft.shape[0]
+
+        if len(fft.shape) == 3:
+            s_shape = fft.shape[1]
+
+        s = s_shape * width_fraction
         g = gaussian_filter(shape=fft.shape, sigma=s)
         background_filtered = fftpack.irfft(fft * g)
 
@@ -216,7 +224,7 @@ def log_space_fft_filtering(
         coeff_filtered.append((ch_filtered, cv, cd))
 
     img_log_filtered = pywt.waverec2(coeff_filtered, wavelet)
-    img_filtered = np.exp(img_log_filtered) + 1
+    img_filtered = np.exp(img_log_filtered) + 1.0
 
     return img_filtered
 

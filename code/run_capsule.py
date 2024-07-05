@@ -9,15 +9,16 @@ from glob import glob
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-import aind_smartspim_destripe.flatfield_estimation as flat_est
 import numpy as np
 import tifffile as tif
 from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
                                               Processing, ProcessName)
+from natsort import natsorted
+
+import aind_smartspim_destripe.flatfield_estimation as flat_est
 from aind_smartspim_destripe import __version__, destriper
 from aind_smartspim_destripe.filtering import invert_image, normalize_image
 from aind_smartspim_destripe.utils import utils
-from natsort import natsorted
 
 
 def read_json_as_dict(filepath: str) -> dict:
