@@ -14,10 +14,10 @@ from typing import Optional
 import imageio as iio
 import tifffile
 import tqdm
+from aind_large_scale_prediction.types import PathLike
 
 from .filtering import filter_stripes
 from .readers import *
-from .types import PathLike
 
 LOG_FMT = "%(asctime)s %(message)s"
 LOG_DATE_FMT = "%Y-%m-%d %H:%M"

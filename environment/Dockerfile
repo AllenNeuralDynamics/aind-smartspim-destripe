@@ -7,21 +7,23 @@ ARG GIT_ASKPASS
 ARG GIT_ACCESS_TOKEN
 COPY git-askpass /
 
-RUN conda create -n destriper python=3.8 -y
+RUN conda create -n destriper python=3.9 -y
 SHELL ["conda", "run", "-n", "destriper", "/bin/bash", "-c"]
 # RUN conda install -c conda-forge awscli
 
 RUN pip install -U --no-cache-dir \
-    numpy==1.24.2 \
-    scipy==1.9.1 \
-    scikit-image==0.20.0 \
-    tifffile==2023.3.21 \
-    PyWavelets==1.4.1 \
-    tqdm==4.65.0 \
-    pathlib2==2.3.7.post1 \
-    aind-data-schema==0.22.1 \
-    matplotlib==3.7.3 \
-    psutil==5.9.5 \
+    aind-large-scale-prediction==1.0.0 \
+    numpy \
+    scipy \
+    scikit-image \
+    tifffile \
+    PyWavelets \
+    tqdm \
+    pathlib2 \
+    aind-data-schema \
+    matplotlib \
+    psutil \
     BaSiCPy==1.1.0 \
-    natsort==8.4.0 \
-    git+https://github.com/imageio/imageio.git
+    natsort \
+    git+https://github.com/imageio/imageio.git \
+    xarray_multiscale==2.1.0
