@@ -938,7 +938,7 @@ def destripe_zarr(
 
     logger.info(f"Creating destriped zarr in path: {output_destriped_zarr}")
 
-    store = parse_url(path="/results", mode="w").store
+    store = parse_url(path=output_destriped_zarr.parent, mode="w").store
     root_group = zarr.group(store=store)
     dataset_name = Path(output_destriped_zarr).name
     new_channel_group = root_group.create_group(name=dataset_name, overwrite=True)
