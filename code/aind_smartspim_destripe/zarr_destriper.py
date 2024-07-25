@@ -26,6 +26,128 @@ from ome_zarr.writer import write_multiscales_metadata
 from scipy.ndimage import binary_fill_holes, grey_dilation, map_coordinates
 from skimage.measure import regionprops
 from utils import utils
+import tifffile as tif
+from pathlib import Path
+import json
+from natsort import natsorted
+
+def read_json_as_dict(filepath: str) -> dict:
+    """
+    Reads a json as dictionary.
+    Parameters
+    ------------------------
+    filepath: PathLike
+        Path where the json is located.
+    Returns
+    ------------------------
+    dict:
+        Dictionary with the data the json has.
+    """
+
+    dictionary = {}
+
+    if os.path.exists(filepath):
+        try:
+            with open(filepath) as json_file:
+                dictionary = json.load(json_file)
+
+        except UnicodeDecodeError:
+            print("Error reading json with utf-8, trying different approach")
+            # This might lose data, verify with Jeff the json encoding
+            with open(filepath, "rb") as json_file:
+                data = json_file.read()
+                data_str = data.decode("utf-8", errors="ignore")
+                dictionary = json.loads(data_str)
+
+    #             print(f"Reading {filepath} forced: {dictionary}")
+
+    return dictionary
+
+def get_microscope_flats(
+    channel_name: str, derivatives_folder: str
+) -> Tuple[np.ndarray]:
+    """
+    Gets the microscope flats
+
+    Parameters
+    ----------
+    channel_name : str
+        Channel to be processed.
+
+    derivatives_folder: str
+        Path where the derivatives folder is.
+
+    logger: logging.Logger
+        Logging object
+
+    Raises
+    ------
+    KeyError:
+        Raises whenever we can't find the XY folders
+        or brain side.
+
+    Returns
+    -------
+    Tuple[List[ArrayLike], dictionary]
+        Tuple with the flafields per brain hemisphere,
+        current dark from the microscope and metadata.json
+        content.
+    """
+    flatfield = None
+    metadata_json = None
+
+    waves = [p for p in channel_name.split("_") if p.isdigit()]
+
+    metadata_json_path = derivatives_folder.joinpath("metadata.json")
+
+    if metadata_json_path.exists() and len(waves):
+        # If the flats exist, I can't apply the flats
+        # without the metadata.json since I do not know which
+        # brain hemisphere is correct for each flat
+
+        orig_metadata_json = read_json_as_dict(filepath=metadata_json_path)
+        curr_emision_wave = int(waves[0])
+        tile_config = orig_metadata_json.get("tile_config")
+        metadata_json = {}
+
+        if tile_config is None:
+            raise ValueError("Please, verify metadata.json")
+
+        # Getting only XY folders for the current emission wave
+        # to know which locations used which flatfield
+        for time_step, value in tile_config.items():
+            config_em_wave = value.get("Laser")
+
+            if int(config_em_wave) == curr_emision_wave:
+                x_folder = value.get("X")
+                y_folder = value.get("Y")
+                brain_side = value.get("Side")  # 0 left hemisphere, 1 right hemisphere
+
+                if x_folder is None or y_folder is None or brain_side is None:
+                    raise KeyError("Please, check the data in metadata.json")
+
+                if metadata_json.get(x_folder) is None:
+                    metadata_json[x_folder] = {}
+
+                metadata_json[x_folder][y_folder] = int(brain_side)
+
+        # The flats are one per hemisphere, we need to check
+        # metadata.json to know which tile is in which laser
+        flatfield = [
+            tif.imread(g)
+            for g in natsorted(
+                glob(f"{derivatives_folder}/FlatReal{curr_emision_wave}_*.tif")
+            )
+            if os.path.exists(g)
+        ]
+
+        # reading flatfields, we should have 2, one per brain hemisphere
+        if len(flatfield) != 2:
+            raise ValueError(
+                f"Error while reading the microscope flatfields: {flatfield}"
+            )
+
+    return flatfield, metadata_json
 
 
 def pad_array_n_d(arr: ArrayLike, dim: int = 5) -> ArrayLike:
@@ -132,6 +254,8 @@ def execute_worker(
     no_cells_config,
     overlap_prediction_chunksize,
     output_destriped_zarr,
+    shadow_correction,
+    dataset_name,
     logger: logging.Logger,
 ):
 
@@ -182,16 +306,19 @@ def execute_worker(
 
     output_slices = tuple(output_slices)
     unpadded_local_slice = tuple(unpadded_local_slice)
-
+    
     filtered_data = np.zeros_like(data)
-
+    
+    input_tile_path = dataset_name.replace(".zarr", "")
+#     print("Input tile path: ", dataset_name, input_tile_path)
+    
     for plane_idx in range(data.shape[-3]):
         filtered_data[plane_idx, ...] = fl.filter_stripes(
             image=data[plane_idx, ...],
-            input_tile_path="",
+            input_tile_path=input_tile_path,
             no_cells_config=no_cells_config,
             cells_config=cells_config,
-            shadow_correction=None,
+            shadow_correction=shadow_correction,
             microscope_high_int=2500,
         )
 
@@ -667,6 +794,7 @@ def destripe_zarr(
     batch_size: int,
     super_chunksize: Tuple[int, ...],
     results_folder: PathLike,
+    derivatives_path,
     lazy_callback_fn: Optional[Callable[[ArrayLike], ArrayLike]] = None,
 ):
     """
@@ -718,11 +846,11 @@ def destripe_zarr(
     no_cells_config = {
         "wavelet": "db3",
         "level": None,
-        "sigma": 32,
+        "sigma": 128,
         "max_threshold": 12,
     }
-    cells_config = {"wavelet": "db3", "level": None, "sigma": 16, "max_threshold": 3}
-
+    cells_config = {"wavelet": "db3", "level": None, "sigma": 64, "max_threshold": 3}
+    
     co_cpus = int(utils.get_code_ocean_cpu_limit())
 
     if n_workers > co_cpus:
@@ -849,6 +977,70 @@ def destripe_zarr(
     curr_picked_blocks = 0
 
     logger.info(f"Number of workers processing data: {exec_n_workers}")
+    
+    # Getting flatfield
+
+    darkfield = None
+    flatfield = None
+    tile_config = None  # Used when the flats come from the microscope
+    retrospective = False
+    apply_microscope_flats = True  # If we want to apply the flats from the microscope
+    shading_parameters = {}
+
+    if os.path.exists(derivatives_path):
+
+        # Reading darkfield
+        darkfield_path = str(derivatives_path.joinpath("DarkMaster_cropped.tif"))
+        logger.info(f"Loading darkfield from path: {darkfield_path}")
+
+        try:
+            darkfield = tif.imread(darkfield_path)
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f"Please, provide the current dark from the microscope! Provided path: {darkfield_path}"
+            )
+    
+        if apply_microscope_flats:
+            channel_name = Path(output_destriped_zarr).parent.name
+            print("CHANNEL NAME: ", channel_name)
+            flatfield, tile_config = get_microscope_flats(
+                channel_name=str(channel_name),
+                derivatives_folder=derivatives_path,
+            )
+            # Normalizing and inverting flatfields from the microscope
+            flatfield = fl.normalize_image(flatfield)
+#             flatfield = fl.invert_image(flatfield)
+
+        else:
+            logger.info("Ignoring microscope flats...")
+    
+    if flatfield is None or tile_config is None:
+        logger.info("Estimating flats with BasicPy...")
+        shading_parameters = {
+            "get_darkfield": False,
+            "smoothness_flatfield": 1.0,
+            "smoothness_darkfield": 20,
+            "sort_intensity": True,
+            "max_reweight_iterations": 35,
+            # "resize_mode":"skimage_dask"
+        }
+
+        flatfield, basicpy_darkfield, baseline = get_retrospective_flatfield_correction(
+            data_folder=data_folder,
+            flats_dir=metadata_flats_dir,
+            no_cells_config=no_cells_config,
+            cells_config=cells_config,
+            shading_parameters=shading_parameters,
+            logger=logger,
+        )
+        retrospective = True
+
+    shadow_correction = {
+        "retrospective": retrospective,
+        "flatfield": flatfield,  # Estimated with basicpy or using the flats from the microscope
+        "darkfield": darkfield,  # Coming from the microscope
+        "tile_config": tile_config,
+    }
 
     for i, sample in enumerate(zarr_data_loader):
         logger.info(
@@ -864,6 +1056,8 @@ def destripe_zarr(
                 "no_cells_config": no_cells_config,
                 "overlap_prediction_chunksize": overlap_prediction_chunksize,
                 "output_destriped_zarr": output_zarr,
+                "shadow_correction": shadow_correction,
+                "dataset_name": dataset_name,
                 "logger": logger,
             }
         )
@@ -986,21 +1180,55 @@ def destripe_zarr(
         )
 
 
-def main():
+def destripe_channel(zarr_dataset_path, derivatives_path, channel_name, results_folder):
     """Main function"""
-    destripe_zarr(
-        dataset_path="../../data/smartspim_zarr_test/Ex_488_Em_525/429940_346620.zarr",
-        multiscale="0",
-        output_destriped_zarr="../../results/test_destripe_2.zarr",
-        prediction_chunksize=(16, 1600, 2000),
-        target_size_mb=3072,
-        n_workers=0,
-        batch_size=1,
-        super_chunksize=(256, 1600, 2000),
-        results_folder="../../results",
-        lazy_callback_fn=None,
-    )
+    channel_dataset = zarr_dataset_path.joinpath(channel_name)
+    
+    for tile_path in channel_dataset.glob("*.zarr"):
+        output_folder = results_folder.joinpath(f"{channel_name}/{tile_path.name}")
+        print(f"Processing {tile_path} - writing to: {output_folder} - derivatives: {derivatives_path}")
 
+        destripe_zarr(
+            dataset_path=tile_path,
+            multiscale="0",
+            output_destriped_zarr=output_folder,
+            prediction_chunksize=(16, 1600, 2000),
+            target_size_mb=3072,
+            n_workers=0,
+            batch_size=1,
+            super_chunksize=(256, 1600, 2000),
+            results_folder=results_folder,
+            derivatives_path=derivatives_path,
+            lazy_callback_fn=None,
+        )
+    
+def main():
+    data_folder = Path(os.path.abspath("../data"))
+    results_folder = Path(os.path.abspath("../results"))
+    scratch_folder = Path(os.path.abspath("../scratch"))
+    
+    BASE_PATH = data_folder
+    
+    #.joinpath(
+    #    "SmartSPIM_721679_2024-07-03_12-38-54-zarr"
+    #)
+    
+    derivatives_path = data_folder.joinpath("derivatives")
+    
+    channels = [ folder.name for folder in list(BASE_PATH.glob("Ex_*_Em_*")) if os.path.isdir(folder) ]
+    
+    if len(channels):
+
+        for channel_name in channels:
+            destripe_channel(
+                zarr_dataset_path=BASE_PATH,
+                channel_name=channel_name,
+                results_folder=results_folder,
+                derivatives_path=derivatives_path
+            )
+    
+    else:
+        print(f"No channels to process in {BASE_PATH}")
 
 if __name__ == "__main__":
     main()
