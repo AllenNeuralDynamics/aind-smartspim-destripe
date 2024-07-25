@@ -795,6 +795,7 @@ def destripe_zarr(
     super_chunksize: Tuple[int, ...],
     results_folder: PathLike,
     derivatives_path,
+    xyz_resolution,
     lazy_callback_fn: Optional[Callable[[ArrayLike], ArrayLike]] = None,
 ):
     """
@@ -1002,7 +1003,7 @@ def destripe_zarr(
     
         if apply_microscope_flats:
             channel_name = Path(output_destriped_zarr).parent.name
-            print("CHANNEL NAME: ", channel_name)
+            # print("CHANNEL NAME: ", channel_name)
             flatfield, tile_config = get_microscope_flats(
                 channel_name=str(channel_name),
                 derivatives_folder=derivatives_path,
@@ -1157,7 +1158,11 @@ def destripe_zarr(
         zarr_group=new_channel_group,
         scale_factor=scale_factor,
         n_workers=co_cpus,
-        voxel_size=[2.0, 1.8, 1.8],
+        voxel_size=[
+            xyz_resolution[-1],
+            xyz_resolution[-2],
+            xyz_resolution[-3],
+        ],
         image_name=dataset_name,
         n_levels=3,
         threads_per_worker=1,
@@ -1180,7 +1185,7 @@ def destripe_zarr(
         )
 
 
-def destripe_channel(zarr_dataset_path, derivatives_path, channel_name, results_folder):
+def destripe_channel(zarr_dataset_path, derivatives_path, channel_name, results_folder, xyz_resolution):
     """Main function"""
     channel_dataset = zarr_dataset_path.joinpath(channel_name)
     
@@ -1199,20 +1204,73 @@ def destripe_channel(zarr_dataset_path, derivatives_path, channel_name, results_
             super_chunksize=(256, 1600, 2000),
             results_folder=results_folder,
             derivatives_path=derivatives_path,
+            xyz_resolution=xyz_resolution,
             lazy_callback_fn=None,
         )
+
+def get_resolution(acquisition_config):
+    # Grabbing a tile with metadata from acquisition - we assume all dataset
+    # was acquired with the same resolution
+    tile_coord_transforms = acquisition_config["tiles"][0]["coordinate_transformations"]
+
+    scale_transform = [x["scale"] for x in tile_coord_transforms if x["type"] == "scale"][0]
+
+    x = float(scale_transform[0])
+    y = float(scale_transform[1])
+    z = float(scale_transform[2])
     
+    return x, y, z
+
+def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
+    """
+    Validates input elemts for a capsule in
+    Code Ocean.
+
+    Parameters
+    -----------
+    input_elements: List[str]
+        Input elements for the capsule. This
+        could be sets of files or folders.
+
+    Returns
+    -----------
+    List[str]
+        List of missing files
+    """
+
+    missing_inputs = []
+    for required_input_element in input_elements:
+        required_input_element = Path(required_input_element)
+
+        if not required_input_element.exists():
+            missing_inputs.append(str(required_input_element))
+
+    return missing_inputs
+
 def main():
     data_folder = Path(os.path.abspath("../data"))
     results_folder = Path(os.path.abspath("../results"))
     scratch_folder = Path(os.path.abspath("../scratch"))
+    
+    # It is assumed that these files
+    # will be in the data folder
+    required_input_elements = [
+        f"{data_folder}/acquisition.json",
+    ]
+    
+    missing_files = validate_capsule_inputs(required_input_elements)
+
+    if len(missing_files):
+        raise ValueError(f"We miss the following files in the capsule input: {missing_files}")
     
     BASE_PATH = data_folder
     
     #.joinpath(
     #    "SmartSPIM_721679_2024-07-03_12-38-54-zarr"
     #)
-    
+    acquisition_dict = read_json_as_dict(f"{data_folder}/{acquisition_path}")
+    voxel_resolution = get_resolution(acquisition_dict)
+
     derivatives_path = data_folder.joinpath("derivatives")
     
     channels = [ folder.name for folder in list(BASE_PATH.glob("Ex_*_Em_*")) if os.path.isdir(folder) ]
@@ -1224,7 +1282,8 @@ def main():
                 zarr_dataset_path=BASE_PATH,
                 channel_name=channel_name,
                 results_folder=results_folder,
-                derivatives_path=derivatives_path
+                derivatives_path=derivatives_path,
+                xyz_resolution=voxel_resolution
             )
     
     else:
