@@ -1411,6 +1411,8 @@ def main():
 
     derivatives_path = data_folder.joinpath("derivatives")
 
+    print(f"Derivatives path data: {list(derivatives_path.glob('*'))}")
+
     channels = [
         folder.name
         for folder in list(BASE_PATH.glob("Ex_*_Em_*"))
