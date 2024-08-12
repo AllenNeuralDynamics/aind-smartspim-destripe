@@ -1252,17 +1252,14 @@ def main():
     required_input_elements = [
         f"{data_folder}/acquisition.json",
     ]
-    """
+
     missing_files = validate_capsule_inputs(required_input_elements)
 
     if len(missing_files):
         raise ValueError(f"We miss the following files in the capsule input: {missing_files}")
-    """
-    BASE_PATH = data_folder.joinpath(
-       "SmartSPIM_717381_2024-07-03_10-49-01-zarr"
-    )
-    
-    acquisition_path = data_folder.joinpath("SmartSPIM_717381_2024-07-03_10-49-01/acquisition.json")
+
+    BASE_PATH = data_folder
+    acquisition_path = data_folder.joinpath("acquisition.json")
     
     acquisition_dict = utils.read_json_as_dict(acquisition_path)
     
@@ -1271,7 +1268,7 @@ def main():
 
     voxel_resolution = get_resolution(acquisition_dict)
 
-    derivatives_path = data_folder.joinpath("SmartSPIM_717381_2024-07-03_10-49-01/derivatives")
+    derivatives_path = data_folder.joinpath("derivatives")
     
     channels = [ folder.name for folder in list(BASE_PATH.glob("Ex_*_Em_*")) if os.path.isdir(folder) ]
     laser_tiles_path = data_folder.joinpath('laser_tiles.json')
@@ -1286,7 +1283,7 @@ def main():
     if len(channels):
 
         for channel_name in channels:
-            estimated_channel_flats = natsorted(list(data_folder.glob(f"717381_flats_test/estimated_flat_laser_{channel_name}*.tif")))
+            estimated_channel_flats = natsorted(list(data_folder.glob(f"estimated_flat_laser_{channel_name}*.tif")))
             
             if not len(estimated_channel_flats):
                 raise FileNotFoundError(f"Error while retrieving flats from the data folder for channel {channel_name}")
