@@ -1390,6 +1390,8 @@ def main():
 
     missing_files = validate_capsule_inputs(required_input_elements)
 
+    print(f"Data in folder: {list(data_folder.glob('*'))}")
+
     if len(missing_files):
         raise ValueError(
             f"We miss the following files in the capsule input: {missing_files}"
