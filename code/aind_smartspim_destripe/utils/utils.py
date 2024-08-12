@@ -2,6 +2,7 @@
 Utility functions
 """
 
+import json
 import logging
 import multiprocessing
 import os
@@ -15,7 +16,6 @@ from typing import List, Optional
 import matplotlib.pyplot as plt
 import psutil
 from natsort import natsorted
-import json
 
 
 def profile_resources(
@@ -402,6 +402,7 @@ def create_folder(dest_dir: str, verbose: Optional[bool] = False) -> None:
         except OSError as e:
             if e.errno != os.errno.EEXIST:
                 raise
+
 
 def read_json_as_dict(filepath: str) -> dict:
     """

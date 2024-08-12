@@ -1,3 +1,4 @@
+import json
 import logging
 import multiprocessing
 import os
@@ -7,29 +8,31 @@ from time import time
 from typing import Callable, Dict, List, Optional, Tuple, Type, cast
 
 import dask.array as da
-import filtering as fl
 import numpy as np
 import psutil
+import tifffile as tif
 import xarray_multiscale
 import zarr
+from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
+                                              Processing, ProcessName)
 from aind_large_scale_prediction._shared.types import ArrayLike, PathLike
 from aind_large_scale_prediction.generator.dataset import create_data_loader
 from aind_large_scale_prediction.generator.utils import (
     recover_global_position, unpad_global_coords)
 from aind_large_scale_prediction.io import ImageReaderFactory
-from blocked_zarr_writer import BlockedArrayWriter
 from dask.distributed import Client, LocalCluster, performance_report
+from natsort import natsorted
 from numcodecs import blosc
 from ome_zarr.format import CurrentFormat
 from ome_zarr.io import parse_url
 from ome_zarr.writer import write_multiscales_metadata
 from scipy.ndimage import binary_fill_holes, grey_dilation, map_coordinates
 from skimage.measure import regionprops
+
+import filtering as fl
+from blocked_zarr_writer import BlockedArrayWriter
 from utils import utils
-import tifffile as tif
-from pathlib import Path
-import json
-from natsort import natsorted
+
 
 def get_microscope_flats(
     channel_name: str, derivatives_folder: str
@@ -116,6 +119,102 @@ def get_microscope_flats(
             )
 
     return flatfield, metadata_json
+
+
+def generate_data_processing(
+    channel_name: str,
+    destripe_version: str,
+    destripe_config: dict,
+    start_time,
+    end_time,
+    output_directory: str,
+):
+    """
+    Generates a destriping data processing
+    for the processed channel.
+
+    Paramters
+    -----------
+    channel_name: str
+        SmartSPIM channel to process
+
+    destripe_version: str
+        Destriping version
+
+    input_path: str
+        Path where the images are located
+
+    output_path: str
+        Path where the images are stored
+
+    destripe_config: dict
+        Dictionary with the configuration
+        for the destriping algorithm
+
+    note_shadow_correction: str
+        Shadow correction notes
+
+    start_time: datetime
+        Time the destriping process
+        started
+
+    end_time: datetime
+        Time the destriping process
+        ended
+
+    output_directory: str
+        Path where we want to store the
+        processing manifest
+
+    """
+    output_directory = os.path.abspath(output_directory)
+
+    if not os.path.exists(output_directory):
+        raise FileNotFoundError(
+            f"Please, check that this folder exists {output_directory}"
+        )
+
+    input_path = destripe_config["input_path"]
+    output_path = destripe_config["output_path"]
+
+    note_shadow_correction = """The flats were computed from the data \
+    with basicpy, these were applied with the destriping algorithm \
+    and with the current dark from the microscope.
+    """
+
+    del destripe_config["input_path"]
+    del destripe_config["output_path"]
+
+    pipeline_process = PipelineProcess(
+        data_processes=[
+            DataProcess(
+                name=ProcessName.IMAGE_DESTRIPING,
+                software_version=destripe_version,
+                start_date_time=start_time,
+                end_date_time=end_time,
+                input_location=str(input_path),
+                output_location=str(output_path),
+                code_version=destripe_version,
+                code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
+                parameters=destripe_config,
+                notes=f"Destriping for channel {channel_name} in zarr format",
+            ),
+        ],
+        processor_full_name="Camilo Laiton",
+        pipeline_url="https://github.com/AllenNeuralDynamics/aind-smartspim-pipeline",
+        pipeline_version="3.0.0",
+    )
+
+    processing = Processing(
+        processing_pipeline=pipeline_process,
+        notes="This processing only contains metadata about destriping \
+        and needs to be compiled with other steps at the end",
+    )
+
+    with open(
+        f"{output_directory}/image_destriping_{channel_name}_processing.json", "w"
+    ) as f:
+        f.write(processing.model_dump_json(indent=3))
 
 
 def pad_array_n_d(arr: ArrayLike, dim: int = 5) -> ArrayLike:
@@ -274,12 +373,12 @@ def execute_worker(
 
     output_slices = tuple(output_slices)
     unpadded_local_slice = tuple(unpadded_local_slice)
-    
+
     filtered_data = np.zeros_like(data)
-    
+
     input_tile_path = dataset_name.replace(".zarr", "")
-#     print("Input tile path: ", dataset_name, input_tile_path)
-    
+    #     print("Input tile path: ", dataset_name, input_tile_path)
+
     for plane_idx in range(data.shape[-3]):
         filtered_data[plane_idx, ...] = fl.filter_stripes(
             image=data[plane_idx, ...],
@@ -764,7 +863,8 @@ def destripe_zarr(
     results_folder: PathLike,
     derivatives_path,
     xyz_resolution,
-    flatfield = None,
+    parameters,
+    flatfield=None,
     lazy_callback_fn: Optional[Callable[[ArrayLike], ArrayLike]] = None,
 ):
     """
@@ -813,14 +913,10 @@ def destripe_zarr(
         is located.
 
     """
-    no_cells_config = {
-        "wavelet": "db3",
-        "level": None,
-        "sigma": 128,
-        "max_threshold": 12,
-    }
-    cells_config = {"wavelet": "db3", "level": None, "sigma": 64, "max_threshold": 3}
-    
+
+    no_cells_config = parameters["no_cells_config"]
+    cells_config = parameters["cells_config"]
+
     co_cpus = int(utils.get_code_ocean_cpu_limit())
 
     if n_workers > co_cpus:
@@ -947,7 +1043,7 @@ def destripe_zarr(
     curr_picked_blocks = 0
 
     logger.info(f"Number of workers processing data: {exec_n_workers}")
-    
+
     # Getting flatfield
     darkfield = None
     tile_config = None  # Used when the flats come from the microscope
@@ -969,7 +1065,7 @@ def destripe_zarr(
             raise FileNotFoundError(
                 f"Please, provide the current dark from the microscope! Provided path: {darkfield_path}"
             )
-    
+
         if apply_microscope_flats:
             logger.info("Getting microscope flats!")
             channel_name = Path(output_destriped_zarr).parent.name
@@ -980,11 +1076,11 @@ def destripe_zarr(
             )
             # Normalizing and inverting flatfields from the microscope
             flatfield = fl.normalize_image(flatfield)
-#             flatfield = fl.invert_image(flatfield)
+        #             flatfield = fl.invert_image(flatfield)
 
         else:
             logger.info("Ignoring microscope flats...")
-    
+
     if flatfield is None:
         logger.info("Estimating flats with BasicPy...")
         shading_parameters = {
@@ -1005,10 +1101,11 @@ def destripe_zarr(
             logger=logger,
         )
         retrospective = True
-    
+
     else:
-        logging.info(f"Ignoring estimation of the flats from the data. Using provided flat: {flatfield.shape}")
-        
+        logging.info(
+            f"Ignoring estimation of the flats from the data. Using provided flat: {flatfield.shape}"
+        )
 
     shadow_correction = {
         "retrospective": retrospective,
@@ -1166,27 +1263,48 @@ def destripe_channel(
     results_folder,
     xyz_resolution,
     estimated_channel_flats,
-    laser_tiles
+    laser_tiles,
 ):
     """Main function"""
     channel_dataset = zarr_dataset_path.joinpath(channel_name)
-    
+
+    # Parameters for destriping
+    parameters = {
+        "input_path": str(channel_dataset),
+        "output_path": str(results_folder),
+        "no_cells_config": {
+            "wavelet": "db3",
+            "level": None,
+            "sigma": 128,
+            "max_threshold": 12,
+        },
+        "cells_config": {
+            "wavelet": "db3",
+            "level": None,
+            "sigma": 64,
+            "max_threshold": 3,
+        },
+    }
+    start_time = time()
+
     for tile_path in channel_dataset.glob("*.zarr"):
         output_folder = results_folder.joinpath(f"{channel_name}/{tile_path.name}")
-        print(f"Processing {tile_path} - writing to: {output_folder} - derivatives: {derivatives_path}")
-        
+        print(
+            f"Processing {tile_path} - writing to: {output_folder} - derivatives: {derivatives_path}"
+        )
+
         flatfield_path = None
         for side, tiles in laser_tiles.items():
             if tile_path.stem in tiles:
                 flatfield_path = estimated_channel_flats[int(side)]
                 break
-                
+
         if flatfield_path is None:
             raise ValueError(f"Tile {tile_path} not found in {laser_tiles}")
-        
+
         flatfield = tif.imread(str(flatfield_path))
         print(f"Reading flatfield from {flatfield_path} - shape: {flatfield.shape}")
-        
+
         destripe_zarr(
             dataset_path=tile_path,
             multiscale="0",
@@ -1199,22 +1317,38 @@ def destripe_channel(
             results_folder=results_folder,
             derivatives_path=derivatives_path,
             xyz_resolution=xyz_resolution,
+            parameters=parameters,
             flatfield=flatfield,
             lazy_callback_fn=None,
         )
+
+    end_time = time()
+
+    generate_data_processing(
+        channel_name=channel_name,
+        destripe_version="0.0.1",
+        destripe_config=parameters,
+        start_time=start_time,
+        end_time=end_time,
+        output_directory=results_folder,
+    )
+
 
 def get_resolution(acquisition_config):
     # Grabbing a tile with metadata from acquisition - we assume all dataset
     # was acquired with the same resolution
     tile_coord_transforms = acquisition_config["tiles"][0]["coordinate_transformations"]
 
-    scale_transform = [x["scale"] for x in tile_coord_transforms if x["type"] == "scale"][0]
+    scale_transform = [
+        x["scale"] for x in tile_coord_transforms if x["type"] == "scale"
+    ][0]
 
     x = float(scale_transform[0])
     y = float(scale_transform[1])
     z = float(scale_transform[2])
-    
+
     return x, y, z
+
 
 def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
     """
@@ -1242,11 +1376,12 @@ def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
 
     return missing_inputs
 
+
 def main():
     data_folder = Path(os.path.abspath("../../data"))
     results_folder = Path(os.path.abspath("../../results"))
     scratch_folder = Path(os.path.abspath("../../scratch"))
-    
+
     # It is assumed that these files
     # will be in the data folder
     required_input_elements = [
@@ -1256,38 +1391,50 @@ def main():
     missing_files = validate_capsule_inputs(required_input_elements)
 
     if len(missing_files):
-        raise ValueError(f"We miss the following files in the capsule input: {missing_files}")
+        raise ValueError(
+            f"We miss the following files in the capsule input: {missing_files}"
+        )
 
     BASE_PATH = data_folder
     acquisition_path = data_folder.joinpath("acquisition.json")
-    
+
     acquisition_dict = utils.read_json_as_dict(acquisition_path)
-    
+
     if not len(acquisition_dict):
-        raise ValueError(f"Not able to read acquisition metadata from {acquisition_path}")
+        raise ValueError(
+            f"Not able to read acquisition metadata from {acquisition_path}"
+        )
 
     voxel_resolution = get_resolution(acquisition_dict)
 
     derivatives_path = data_folder.joinpath("derivatives")
-    
-    channels = [ folder.name for folder in list(BASE_PATH.glob("Ex_*_Em_*")) if os.path.isdir(folder) ]
-    laser_tiles_path = data_folder.joinpath('laser_tiles.json')
-    
+
+    channels = [
+        folder.name
+        for folder in list(BASE_PATH.glob("Ex_*_Em_*"))
+        if os.path.isdir(folder)
+    ]
+    laser_tiles_path = data_folder.joinpath("laser_tiles.json")
+
     if not laser_tiles_path.exists():
         raise FileNotFoundError(f"Path {laser_tiles_path} does not exist!")
-        
+
     laser_tiles = utils.read_json_as_dict(str(laser_tiles_path))
-    
+
     print(f"Laser tiles: {laser_tiles}")
-    
+
     if len(channels):
 
         for channel_name in channels:
-            estimated_channel_flats = natsorted(list(data_folder.glob(f"estimated_flat_laser_{channel_name}*.tif")))
-            
+            estimated_channel_flats = natsorted(
+                list(data_folder.glob(f"estimated_flat_laser_{channel_name}*.tif"))
+            )
+
             if not len(estimated_channel_flats):
-                raise FileNotFoundError(f"Error while retrieving flats from the data folder for channel {channel_name}")
-            
+                raise FileNotFoundError(
+                    f"Error while retrieving flats from the data folder for channel {channel_name}"
+                )
+
             destripe_channel(
                 zarr_dataset_path=BASE_PATH,
                 channel_name=channel_name,
@@ -1295,11 +1442,12 @@ def main():
                 derivatives_path=derivatives_path,
                 xyz_resolution=voxel_resolution,
                 estimated_channel_flats=estimated_channel_flats,
-                laser_tiles=laser_tiles
+                laser_tiles=laser_tiles,
             )
-    
+
     else:
         print(f"No channels to process in {BASE_PATH}")
+
 
 if __name__ == "__main__":
     main()
