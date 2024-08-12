@@ -1378,9 +1378,9 @@ def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
 
 
 def main():
-    data_folder = Path(os.path.abspath("../../data"))
-    results_folder = Path(os.path.abspath("../../results"))
-    scratch_folder = Path(os.path.abspath("../../scratch"))
+    data_folder = Path(os.path.abspath("../data"))
+    results_folder = Path(os.path.abspath("../results"))
+    scratch_folder = Path(os.path.abspath("../scratch"))
 
     # It is assumed that these files
     # will be in the data folder
