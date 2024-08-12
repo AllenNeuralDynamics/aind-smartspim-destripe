@@ -31,38 +31,6 @@ from pathlib import Path
 import json
 from natsort import natsorted
 
-def read_json_as_dict(filepath: str) -> dict:
-    """
-    Reads a json as dictionary.
-    Parameters
-    ------------------------
-    filepath: PathLike
-        Path where the json is located.
-    Returns
-    ------------------------
-    dict:
-        Dictionary with the data the json has.
-    """
-
-    dictionary = {}
-
-    if os.path.exists(filepath):
-        try:
-            with open(filepath) as json_file:
-                dictionary = json.load(json_file)
-
-        except UnicodeDecodeError:
-            print("Error reading json with utf-8, trying different approach")
-            # This might lose data, verify with Jeff the json encoding
-            with open(filepath, "rb") as json_file:
-                data = json_file.read()
-                data_str = data.decode("utf-8", errors="ignore")
-                dictionary = json.loads(data_str)
-
-    #             print(f"Reading {filepath} forced: {dictionary}")
-
-    return dictionary
-
 def get_microscope_flats(
     channel_name: str, derivatives_folder: str
 ) -> Tuple[np.ndarray]:
@@ -105,7 +73,7 @@ def get_microscope_flats(
         # without the metadata.json since I do not know which
         # brain hemisphere is correct for each flat
 
-        orig_metadata_json = read_json_as_dict(filepath=metadata_json_path)
+        orig_metadata_json = utils.read_json_as_dict(filepath=metadata_json_path)
         curr_emision_wave = int(waves[0])
         tile_config = orig_metadata_json.get("tile_config")
         metadata_json = {}
@@ -796,6 +764,7 @@ def destripe_zarr(
     results_folder: PathLike,
     derivatives_path,
     xyz_resolution,
+    flatfield = None,
     lazy_callback_fn: Optional[Callable[[ArrayLike], ArrayLike]] = None,
 ):
     """
@@ -980,12 +949,12 @@ def destripe_zarr(
     logger.info(f"Number of workers processing data: {exec_n_workers}")
     
     # Getting flatfield
-
     darkfield = None
-    flatfield = None
     tile_config = None  # Used when the flats come from the microscope
-    retrospective = False
-    apply_microscope_flats = True  # If we want to apply the flats from the microscope
+    # If we want to apply the flats from the microscope
+    apply_microscope_flats = True if flatfield is None else False
+    retrospective = not apply_microscope_flats
+
     shading_parameters = {}
 
     if os.path.exists(derivatives_path):
@@ -1002,6 +971,7 @@ def destripe_zarr(
             )
     
         if apply_microscope_flats:
+            logger.info("Getting microscope flats!")
             channel_name = Path(output_destriped_zarr).parent.name
             # print("CHANNEL NAME: ", channel_name)
             flatfield, tile_config = get_microscope_flats(
@@ -1015,7 +985,7 @@ def destripe_zarr(
         else:
             logger.info("Ignoring microscope flats...")
     
-    if flatfield is None or tile_config is None:
+    if flatfield is None:
         logger.info("Estimating flats with BasicPy...")
         shading_parameters = {
             "get_darkfield": False,
@@ -1035,6 +1005,10 @@ def destripe_zarr(
             logger=logger,
         )
         retrospective = True
+    
+    else:
+        logging.info(f"Ignoring estimation of the flats from the data. Using provided flat: {flatfield.shape}")
+        
 
     shadow_correction = {
         "retrospective": retrospective,
@@ -1185,14 +1159,34 @@ def destripe_zarr(
         )
 
 
-def destripe_channel(zarr_dataset_path, derivatives_path, channel_name, results_folder, xyz_resolution):
+def destripe_channel(
+    zarr_dataset_path,
+    derivatives_path,
+    channel_name,
+    results_folder,
+    xyz_resolution,
+    estimated_channel_flats,
+    laser_tiles
+):
     """Main function"""
     channel_dataset = zarr_dataset_path.joinpath(channel_name)
     
     for tile_path in channel_dataset.glob("*.zarr"):
         output_folder = results_folder.joinpath(f"{channel_name}/{tile_path.name}")
         print(f"Processing {tile_path} - writing to: {output_folder} - derivatives: {derivatives_path}")
-
+        
+        flatfield_path = None
+        for side, tiles in laser_tiles.items():
+            if tile_path.stem in tiles:
+                flatfield_path = estimated_channel_flats[int(side)]
+                break
+                
+        if flatfield_path is None:
+            raise ValueError(f"Tile {tile_path} not found in {laser_tiles}")
+        
+        flatfield = tif.imread(str(flatfield_path))
+        print(f"Reading flatfield from {flatfield_path} - shape: {flatfield.shape}")
+        
         destripe_zarr(
             dataset_path=tile_path,
             multiscale="0",
@@ -1205,6 +1199,7 @@ def destripe_channel(zarr_dataset_path, derivatives_path, channel_name, results_
             results_folder=results_folder,
             derivatives_path=derivatives_path,
             xyz_resolution=xyz_resolution,
+            flatfield=flatfield,
             lazy_callback_fn=None,
         )
 
@@ -1248,42 +1243,62 @@ def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
     return missing_inputs
 
 def main():
-    data_folder = Path(os.path.abspath("../data"))
-    results_folder = Path(os.path.abspath("../results"))
-    scratch_folder = Path(os.path.abspath("../scratch"))
+    data_folder = Path(os.path.abspath("../../data"))
+    results_folder = Path(os.path.abspath("../../results"))
+    scratch_folder = Path(os.path.abspath("../../scratch"))
     
     # It is assumed that these files
     # will be in the data folder
     required_input_elements = [
         f"{data_folder}/acquisition.json",
     ]
-    
+    """
     missing_files = validate_capsule_inputs(required_input_elements)
 
     if len(missing_files):
         raise ValueError(f"We miss the following files in the capsule input: {missing_files}")
+    """
+    BASE_PATH = data_folder.joinpath(
+       "SmartSPIM_717381_2024-07-03_10-49-01-zarr"
+    )
     
-    BASE_PATH = data_folder
+    acquisition_path = data_folder.joinpath("SmartSPIM_717381_2024-07-03_10-49-01/acquisition.json")
     
-    #.joinpath(
-    #    "SmartSPIM_721679_2024-07-03_12-38-54-zarr"
-    #)
-    acquisition_dict = read_json_as_dict(f"{data_folder}/{acquisition_path}")
+    acquisition_dict = utils.read_json_as_dict(acquisition_path)
+    
+    if not len(acquisition_dict):
+        raise ValueError(f"Not able to read acquisition metadata from {acquisition_path}")
+
     voxel_resolution = get_resolution(acquisition_dict)
 
-    derivatives_path = data_folder.joinpath("derivatives")
+    derivatives_path = data_folder.joinpath("SmartSPIM_717381_2024-07-03_10-49-01/derivatives")
     
     channels = [ folder.name for folder in list(BASE_PATH.glob("Ex_*_Em_*")) if os.path.isdir(folder) ]
+    laser_tiles_path = data_folder.joinpath('laser_tiles.json')
+    
+    if not laser_tiles_path.exists():
+        raise FileNotFoundError(f"Path {laser_tiles_path} does not exist!")
+        
+    laser_tiles = utils.read_json_as_dict(str(laser_tiles_path))
+    
+    print(f"Laser tiles: {laser_tiles}")
     
     if len(channels):
 
         for channel_name in channels:
+            estimated_channel_flats = natsorted(list(data_folder.glob(f"717381_flats_test/estimated_flat_laser_{channel_name}*.tif")))
+            
+            if not len(estimated_channel_flats):
+                raise FileNotFoundError(f"Error while retrieving flats from the data folder for channel {channel_name}")
+            
             destripe_channel(
                 zarr_dataset_path=BASE_PATH,
                 channel_name=channel_name,
                 results_folder=results_folder,
                 derivatives_path=derivatives_path,
-                xyz_resolution=voxel_resolution
+                xyz_resolution=voxel_resolution,
+                estimated_channel_flats=estimated_channel_flats,
+                laser_tiles=laser_tiles
             )
     
     else:
