@@ -1287,8 +1287,12 @@ def destripe_channel(
     }
     start_time = time()
 
+    destriped_data_folder = results_folder.joinpath("destriped_data")
+
+    utils.create_folder(destriped_data_folder)
+
     for tile_path in channel_dataset.glob("*.zarr"):
-        output_folder = results_folder.joinpath(f"{channel_name}/{tile_path.name}")
+        output_folder = destriped_data_folder.joinpath(f"{channel_name}/{tile_path.name}")
         print(
             f"Processing {tile_path} - writing to: {output_folder} - derivatives: {derivatives_path}"
         )
