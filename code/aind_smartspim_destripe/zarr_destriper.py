@@ -1399,13 +1399,12 @@ def main():
     missing_files = validate_capsule_inputs(required_input_elements)
 
     print(f"Data in folder: {list(data_folder.glob('*'))}")
+    dask.config.set({"distributed.worker.memory.terminate": False})
 
     if len(missing_files):
         raise ValueError(
             f"We miss the following files in the capsule input: {missing_files}"
         )
-
-    dask.config.set({"distributed.worker.memory.terminate": False})
 
     BASE_PATH = data_folder
     acquisition_path = data_folder.joinpath("acquisition.json")
