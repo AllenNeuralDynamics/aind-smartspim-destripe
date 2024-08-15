@@ -1404,7 +1404,7 @@ def main():
             f"We miss the following files in the capsule input: {missing_files}"
         )
 
-    # dask.config.set({"distributed.worker.memory.terminate": False})
+    dask.config.set({"distributed.worker.memory.terminate": False})
 
     BASE_PATH = data_folder
     acquisition_path = data_folder.joinpath("acquisition.json")
