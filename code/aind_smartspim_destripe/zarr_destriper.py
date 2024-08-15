@@ -848,7 +848,10 @@ def compute_multiscale(
     print(f"Time to write the dataset: {end_time - start_time}")
     print(f"Written pyramid: {written_pyramid}")
 
-    client.shutdown()
+    try:
+        client.shutdown()
+    except Exception as e:
+        print(f"Handling error {e} when closing client.")
 
 
 def destripe_zarr(
@@ -1400,6 +1403,8 @@ def main():
         raise ValueError(
             f"We miss the following files in the capsule input: {missing_files}"
         )
+
+    # dask.config.set({"distributed.worker.memory.terminate": False})
 
     BASE_PATH = data_folder
     acquisition_path = data_folder.joinpath("acquisition.json")
