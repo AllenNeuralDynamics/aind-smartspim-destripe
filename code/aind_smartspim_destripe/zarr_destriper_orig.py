@@ -396,10 +396,8 @@ def execute_worker(
 
     filtered_data_converted = np.clip(filtered_data, 0, 65535).astype(np.uint16)
     #     filtered_data_converted = (filtered_data_converted / filtered_data.max() * 65535).astype(np.uint16)
-    
-    output_destriped_zarr[output_slices] = filtered_data
-    
-#     return filtered_data_converted, output_slices
+
+    return filtered_data_converted, output_slices
 
 
 def _execute_worker(params):
@@ -827,7 +825,7 @@ def compute_multiscale(
         previous_scale_pyramid = compute_pyramid(
             data=previous_scale,
             scale_axis=new_scale_factor,
-            chunks=(1, 1, 64, 128, 128),
+            chunks=(1, 1, 128, 128, 128),
             n_lvls=2,
         )
         array_to_write = previous_scale_pyramid[-1]
@@ -856,119 +854,6 @@ def compute_multiscale(
     except Exception as e:
         print(f"Handling error {e} when closing client.")
 
-
-def producer(
-    producer_queue,
-    zarr_data_loader,
-    logger,
-    n_consumers,
-):
-    """
-    Function that sends blocks of data to
-    the queue to be acquired by the workers.
-
-    Parameters
-    ----------
-    producer_queue: multiprocessing.Queue
-        Multiprocessing queue where blocks
-        are sent to be acquired by workers.
-
-    zarr_data_loader: DataLoader
-        Zarr data loader
-
-    logger: logging.Logger
-        Logging object
-
-    n_consumers: int
-        Number of consumers
-    """
-    # total_samples = sum(zarr_dataset.internal_slice_sum)
-    worker_pid = os.getpid()
-
-    logger.info(f"Starting producer queue: {worker_pid}")
-    for i, sample in enumerate(zarr_data_loader):
-
-        producer_queue.put(
-            {
-                'i': i,
-                "data": sample.batch_tensor.numpy(),
-                "batch_super_chunk": sample.batch_super_chunk[0],
-                "batch_internal_slice": sample.batch_internal_slice,
-            },
-            block=True,
-        )
-        logger.info(f"[+] Worker {worker_pid} setting block {i}")
-
-    for i in range(n_consumers):
-        producer_queue.put(None, block=True)
-
-    # zarr_dataset.lazy_data.shape
-    logger.info(f"[+] Worker {worker_pid} -> Producer finished producing data.")
-        
-        
-def consumer(
-    queue,
-    zarr_dataset,
-    worker_params,
-):
-    """
-    Function executed in every worker
-    to acquire data.
-
-    Parameters
-    ----------
-    queue: multiprocessing.Queue
-        Multiprocessing queue where blocks
-        are sent to be acquired by workers.
-
-    zarr_dataset: ArrayLike
-        Zarr dataset
-
-    worker_params: dict
-        Worker parametes to execute a function.
-
-    results_dict: multiprocessing.Dict
-        Results dictionary where outputs
-        are stored.
-    """
-    logger = worker_params["logger"]
-    worker_results = {}
-    worker_pid = os.getpid()
-    logger.info(f"Starting consumer worker -> {worker_pid}")
-
-    # Setting initial wait so all processes could be created
-    # And producer can start generating data
-    # sleep(60)
-
-    # Start processing
-    total_samples = sum(zarr_dataset.internal_slice_sum)
-
-    while True:
-        streamed_dict = queue.get(block=True)
-
-        if streamed_dict is None:
-            logger.info(f"[-] Worker {worker_pid} -> Turn off signal received...")
-            break
-
-        logger.info(
-            f"[-] Worker {worker_pid} -> Consuming {streamed_dict['i']} - {streamed_dict['data'].shape} - Super chunk val: {zarr_dataset.curr_super_chunk_pos.value} - internal slice sum: {total_samples}"
-        )
-
-        execute_worker(
-            data=streamed_dict['data'],
-            batch_super_chunk=streamed_dict['batch_super_chunk'],
-            batch_internal_slice=streamed_dict['batch_internal_slice'],
-            cells_config=worker_params['cells_config'],
-            no_cells_config=worker_params['no_cells_config'],
-            overlap_prediction_chunksize=worker_params['overlap_prediction_chunksize'],
-            output_destriped_zarr=worker_params['output_zarr'],
-            shadow_correction=worker_params['shadow_correction'],
-            dataset_name=worker_params['dataset_name'],
-            logger=logger,
-        )
-
-
-    logger.info(f"[-] Worker {worker_pid} -> Consumer finished consuming data.")
 
 def destripe_zarr(
     dataset_path: PathLike,
@@ -1130,7 +1015,7 @@ def destripe_zarr(
     output_zarr = new_channel_group.create_dataset(
         name=0,
         shape=original_dataset_shape,
-        chunks=(1, 1, 64, 128, 128),
+        chunks=(1, 1, 128, 128, 128),
         dtype=np.uint16,
         compressor=blosc.Blosc(cname="zstd", clevel=3, shuffle=blosc.SHUFFLE),
         dimension_separator="/",
@@ -1232,49 +1117,114 @@ def destripe_zarr(
         "darkfield": darkfield,  # Coming from the microscope
         "tile_config": tile_config,
     }
-    
-    #### USING QUEUES test
-    
-    # Create consumer processes
-    factor = 20
 
-    # Create a multiprocessing queue
-    producer_queue = multiprocessing.Queue(maxsize=exec_n_workers * factor)
-                    
-    worker_params = {
-        'cells_config': cells_config,
-        'no_cells_config': no_cells_config,
-        'overlap_prediction_chunksize': overlap_prediction_chunksize,
-        'output_zarr': output_zarr,
-        'shadow_correction': shadow_correction,
-        'dataset_name': dataset_name,
-        'logger': logger
-    }
-
-    logger.info(f"Setting up {exec_n_workers} workers...")
-    consumers = [
-        multiprocessing.Process(
-            target=consumer,
-            args=(
-                producer_queue,
-                zarr_dataset,
-                worker_params,
-            ),
+    for i, sample in enumerate(zarr_data_loader):
+        logger.info(
+            f"Batch {i}: {sample.batch_tensor.shape} - Pinned?: {sample.batch_tensor.is_pinned()} - dtype: {sample.batch_tensor.dtype} - device: {sample.batch_tensor.device}"  # noqa: E501
         )
-        for _ in range(exec_n_workers)
-    ]
 
-    # Start consumer processes
-    for consumer_process in consumers:
-        consumer_process.start()
+        picked_blocks.append(
+            {
+                "data": sample.batch_tensor.numpy(),
+                "batch_super_chunk": sample.batch_super_chunk[0],
+                "batch_internal_slice": sample.batch_internal_slice,
+                "cells_config": cells_config,
+                "no_cells_config": no_cells_config,
+                "overlap_prediction_chunksize": overlap_prediction_chunksize,
+                "output_destriped_zarr": output_zarr,
+                "shadow_correction": shadow_correction,
+                "dataset_name": dataset_name,
+                "logger": logger,
+            }
+        )
+        curr_picked_blocks += 1
 
-    # Main process acts as the producer
-    producer(producer_queue, zarr_data_loader, logger, exec_n_workers)
-    
-    # Wait for consumer processes to finish
-    for consumer_process in consumers:
-        consumer_process.join()
-    
+        if curr_picked_blocks == exec_n_workers:
+
+            results = helper_schedule_jobs(picked_blocks, pool, logger)
+
+            # Printing result locations
+            save_data = []
+
+            min_start_loc = None
+            max_stop_loc = None
+
+            for i, (out_img, loc) in enumerate(results):
+
+                if i == 0:
+                    min_start_loc = loc[-3].start
+                    max_stop_loc = loc[-3].stop
+
+                else:
+                    if loc[-3].start < min_start_loc:
+                        min_start_loc = loc[-3].start
+
+                    if loc[-3].stop > max_stop_loc:
+                        max_stop_loc = loc[-3].stop
+
+                save_data.append(out_img)
+
+            out_img = np.concatenate(save_data, axis=-3)
+
+            print(
+                "Concatenated numpy arr: ", out_img.shape, min_start_loc, max_stop_loc
+            )
+            loc = (
+                slice(0, 1),
+                slice(0, 1),
+                slice(min_start_loc, max_stop_loc),
+                results[0][-1][-2],
+                results[0][-1][-1],
+            )
+            #             print(f"output location: {loc}")
+            output_zarr[loc] = out_img
+
+            curr_picked_blocks = 0
+            picked_blocks = []
+
+    if curr_picked_blocks != 0:
+        logger.info(f"Blocks not processed inside of loop: {curr_picked_blocks}")
+        results = helper_schedule_jobs(picked_blocks, pool, logger)
+
+        # Printing result locations
+        save_data = []
+
+        min_start_loc = None
+        max_stop_loc = None
+
+        for i, (out_img, loc) in enumerate(results):
+
+            if i == 0:
+                min_start_loc = loc[-3].start
+                max_stop_loc = loc[-3].stop
+
+            else:
+                if loc[-3].start < min_start_loc:
+                    min_start_loc = loc[-3].start
+
+                if loc[-3].stop > max_stop_loc:
+                    max_stop_loc = loc[-3].stop
+
+            save_data.append(out_img)
+
+        out_img = np.concatenate(save_data, axis=-3)
+
+        print("Concatenated numpy arr: ", out_img.shape, min_start_loc, max_stop_loc)
+        loc = (
+            slice(0, 1),
+            slice(0, 1),
+            slice(min_start_loc, max_stop_loc),
+            results[0][-1][-2],
+            results[0][-1][-1],
+        )
+        output_zarr[loc] = out_img
+
+        # Setting variables back to init
+        curr_picked_blocks = 0
+        picked_blocks = []
+
+    # Closing pool of workers
+    pool.close()
     end_time = time()
 
     scale_factor = [2, 2, 2]
@@ -1296,6 +1246,8 @@ def destripe_zarr(
         threads_per_worker=1,
     )
     multiscale_time_end = time()
+    
+
 
     logger.info(f"Processing destripe flatfield time: {end_time - start_time} seconds")
     logger.info(f"Processing multiscale time: {multiscale_time_end - multiscale_time_start} seconds")
@@ -1370,11 +1322,11 @@ def destripe_channel(
             dataset_path=tile_path,
             multiscale="0",
             output_destriped_zarr=output_folder,
-            prediction_chunksize=(64, 1600, 2000),
+            prediction_chunksize=(16, 1600, 2000),
             target_size_mb=3072,
             n_workers=0,
             batch_size=1,
-            super_chunksize=(384, 1600, 2000),
+            super_chunksize=(256, 1600, 2000),
             results_folder=results_folder,
             derivatives_path=derivatives_path,
             xyz_resolution=xyz_resolution,
