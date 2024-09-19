@@ -1382,8 +1382,6 @@ def destripe_channel(
             flatfield=flatfield,
             lazy_callback_fn=None,
         )
-        print("Breaking point")
-        exit()
 
     end_time = time()
 
