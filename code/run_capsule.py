@@ -21,10 +21,6 @@ from aind_smartspim_destripe import __version__, zarr_destriper
 from aind_smartspim_destripe.filtering import invert_image, normalize_image
 from aind_smartspim_destripe.utils import utils
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 82b3f804642574371b9dcaf20d76b268c1772f32
 def get_data_config(
     data_folder: str,
     processing_manifest_path: Optional[str] = "processing_manifest.json",
@@ -59,17 +55,12 @@ def get_data_config(
     # Doing this because of Code Ocean, ideally we would have
     # a single dataset in the pipeline
 
-<<<<<<< HEAD
     derivatives_dict = utils.read_json_as_dict(
         f"{data_folder}/{processing_manifest_path}"
     )
     data_description_dict = utils.read_json_as_dict(
         f"{data_folder}/{data_description_path}"
     )
-=======
-    derivatives_dict = utils.read_json_as_dict(f"{data_folder}/{processing_manifest_path}")
-    data_description_dict = utils.read_json_as_dict(f"{data_folder}/{data_description_path}")
->>>>>>> 82b3f804642574371b9dcaf20d76b268c1772f32
 
     smartspim_dataset = data_description_dict["name"]
 
@@ -502,86 +493,6 @@ def run():
                 laser_tiles=laser_tiles,
                 parameters=parameters,
             )
-<<<<<<< HEAD
-=======
-            # Normalizing and inverting flatfields from the microscope
-            flatfield = normalize_image(flatfield)
-            flatfield = invert_image(flatfield)
-
-        else:
-            logger.info("Ignoring microscope flats...")
-            
-    else:
-        raise FileNotFoundError(f"Derivatives path not provided. Darkfield not loaded!")
-
-    if flatfield is None or tile_config is None:
-        logger.info("Estimating flats with BasicPy...")
-        shading_parameters = {
-            "get_darkfield": True,
-            "smoothness_flatfield": 1.0,
-            "smoothness_darkfield": 20,
-            "sort_intensity": True,
-            "max_reweight_iterations": 35,
-            # "resize_mode":"skimage_dask"
-        }
-
-        flatfield, basicpy_darkfield, baseline = get_retrospective_flatfield_correction(
-            data_folder=data_folder,
-            flats_dir=metadata_flats_dir,
-            no_cells_config=no_cells_config,
-            cells_config=cells_config,
-            shading_parameters=shading_parameters,
-            logger=logger,
-        )
-        retrospective = True
-
-    shading_parameters["retrospective"] = retrospective
-
-    logger.info(f"Input channel path: {input_channel_path}")
-
-    if "derivatives" in str(input_channel_path):
-        raise ValueError(f"Unknown problem! Why this? {input_channel_path}")
-
-    parameters = {
-        "input_path": input_channel_path,
-        "output_path": output_path,
-        "workers": 32,
-        "chunks": 1,
-        "high_int_filt_params": cells_config,
-        "low_int_filt_params": no_cells_config,
-        "compression": 1,
-        "output_format": ".tiff",
-        "output_dtype": None,
-        "shadow_correction": {
-            "retrospective": retrospective,
-            "flatfield": flatfield,  # Estimated with basicpy or using the flats from the microscope
-            "darkfield": darkfield,  # Coming from the microscope
-            "tile_config": tile_config,
-        },
-    }
-    logger.info(f"parameters: {parameters}")
-
-    destriping_start_time = datetime.now()
-    if input_channel_path.is_dir():
-        logger.info(
-            f"Starting destriping and flatfielding with restrospective approach? {retrospective}"
-        )
-        destriper.batch_filter(**parameters)
-
-    destriping_end_time = datetime.now()
-
-    # Overwriting shadow correction estimated fields with shading parameters
-    # To save them in processing.json
-    parameters["shadow_correction"] = shading_parameters
-    generate_data_processing(
-        channel_name=channel_name,
-        destripe_version=__version__,
-        destripe_config=parameters,
-        start_time=destriping_start_time,
-        end_time=destriping_end_time,
-        output_directory=results_folder,
-    )
->>>>>>> 82b3f804642574371b9dcaf20d76b268c1772f32
 
             destriping_end_time = time()
 
