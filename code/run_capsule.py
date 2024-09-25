@@ -194,7 +194,7 @@ def generate_data_processing(
         ],
         processor_full_name="Camilo Laiton",
         pipeline_url="https://github.com/AllenNeuralDynamics/aind-smartspim-pipeline",
-        pipeline_version="1.5.0",
+        pipeline_version="1.6.0",
     )
 
     processing = Processing(
