@@ -9,7 +9,6 @@ from typing import Callable, Dict, List, Optional, Tuple, Type, cast
 
 import dask
 import dask.array as da
-import filtering as fl
 import numpy as np
 import psutil
 import tifffile as tif
@@ -22,7 +21,6 @@ from aind_large_scale_prediction.generator.dataset import create_data_loader
 from aind_large_scale_prediction.generator.utils import (
     recover_global_position, unpad_global_coords)
 from aind_large_scale_prediction.io import ImageReaderFactory
-from blocked_zarr_writer import BlockedArrayWriter
 from dask.distributed import Client, LocalCluster, performance_report
 from natsort import natsorted
 from numcodecs import blosc
@@ -31,7 +29,10 @@ from ome_zarr.io import parse_url
 from ome_zarr.writer import write_multiscales_metadata
 from scipy.ndimage import binary_fill_holes, grey_dilation, map_coordinates
 from skimage.measure import regionprops
-from utils import utils
+
+from . import filtering as fl
+from .blocked_zarr_writer import BlockedArrayWriter
+from .utils import utils
 
 
 def read_json_as_dict(filepath: str) -> dict:
@@ -1285,9 +1286,7 @@ def destripe_zarr(
 
     darkfield = None
     tile_config = None  # Used when the flats come from the microscope
-    retrospective = True
-    apply_microscope_flats = not retrospective
-    shading_parameters = {}
+    retrospective = False if flatfield is None else True
 
     if os.path.exists(derivatives_path):
 
@@ -1302,7 +1301,7 @@ def destripe_zarr(
                 f"Please, provide the current dark from the microscope! Provided path: {darkfield_path}"
             )
 
-        if apply_microscope_flats:
+        if flatfield is None:
             channel_name = Path(output_destriped_zarr).parent.name
             flatfield, tile_config = get_microscope_flats(
                 channel_name=str(channel_name),
@@ -1412,28 +1411,10 @@ def destripe_channel(
     xyz_resolution,
     estimated_channel_flats,
     laser_tiles,
+    parameters,
 ):
     """Main function"""
     channel_dataset = zarr_dataset_path.joinpath(channel_name)
-
-    # Parameters for destriping
-    parameters = {
-        "input_path": str(channel_dataset),
-        "output_path": str(results_folder),
-        "no_cells_config": {
-            "wavelet": "db3",
-            "level": None,
-            "sigma": 128,
-            "max_threshold": 12,
-        },
-        "cells_config": {
-            "wavelet": "db3",
-            "level": None,
-            "sigma": 64,
-            "max_threshold": 3,
-        },
-    }
-    start_time = time()
 
     destriped_data_folder = results_folder.joinpath("destriped_data")
 
@@ -1476,47 +1457,6 @@ def destripe_channel(
             lazy_callback_fn=None,
         )
 
-    end_time = time()
-
-    generate_data_processing(
-        channel_name=channel_name,
-        destripe_version="0.0.1",
-        destripe_config=parameters,
-        start_time=start_time,
-        end_time=end_time,
-        output_directory=results_folder,
-    )
-
-    channels = [
-        folder
-        for folder in os.listdir(str(BASE_PATH))
-        if os.path.isdir(BASE_PATH.joinpath(folder))
-    ]
-
-    for channel_name in channels:
-        destripe_channel(
-            zarr_dataset_path=BASE_PATH,
-            channel_name=channel_name,
-            results_folder=results_folder,
-            derivatives_path=derivatives_path,
-        )
-
-
-def get_resolution(acquisition_config):
-    # Grabbing a tile with metadata from acquisition - we assume all dataset
-    # was acquired with the same resolution
-    tile_coord_transforms = acquisition_config["tiles"][0]["coordinate_transformations"]
-
-    scale_transform = [
-        x["scale"] for x in tile_coord_transforms if x["type"] == "scale"
-    ][0]
-
-    x = float(scale_transform[0])
-    y = float(scale_transform[1])
-    z = float(scale_transform[2])
-
-    return x, y, z
-
 
 def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
     """
@@ -1546,9 +1486,9 @@ def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
 
 
 def main():
-    data_folder = Path(os.path.abspath("../../data"))
-    results_folder = Path(os.path.abspath("../../results"))
-    scratch_folder = Path(os.path.abspath("../../scratch"))
+    data_folder = Path(os.path.abspath("../data"))
+    results_folder = Path(os.path.abspath("../results"))
+    scratch_folder = Path(os.path.abspath("../scratch"))
 
     # It is assumed that these files
     # will be in the data folder
@@ -1566,6 +1506,23 @@ def main():
     #         )
 
     dask.config.set({"distributed.worker.memory.terminate": False})
+
+    parameters = {
+        "input_path": str(channel_dataset),
+        "output_path": str(results_folder),
+        "no_cells_config": {
+            "wavelet": "db3",
+            "level": None,
+            "sigma": 128,
+            "max_threshold": 12,
+        },
+        "cells_config": {
+            "wavelet": "db3",
+            "level": None,
+            "sigma": 64,
+            "max_threshold": 3,
+        },
+    }
 
     BASE_PATH = data_folder.joinpath("SmartSPIM_717381_2024-07-03_10-49-01-zarr")
     acquisition_path = data_folder.joinpath(
@@ -1625,8 +1582,8 @@ def main():
                 xyz_resolution=voxel_resolution,
                 estimated_channel_flats=estimated_channel_flats,
                 laser_tiles=laser_tiles,
+                parameters=parameters,
             )
-
     else:
         print(f"No channels to process in {BASE_PATH}")
 

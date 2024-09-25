@@ -7,16 +7,17 @@ import os
 from datetime import datetime
 from glob import glob
 from pathlib import Path
+from time import time
 from typing import List, Optional, Tuple
 
+import dask
 import numpy as np
 import tifffile as tif
 from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
                                               Processing, ProcessName)
 from natsort import natsorted
 
-import aind_smartspim_destripe.flatfield_estimation as flat_est
-from aind_smartspim_destripe import __version__, destriper
+from aind_smartspim_destripe import __version__, zarr_destriper
 from aind_smartspim_destripe.filtering import invert_image, normalize_image
 from aind_smartspim_destripe.utils import utils
 
@@ -122,11 +123,10 @@ def generate_data_processing(
 
     input_path = destripe_config["input_path"]
     output_path = destripe_config["output_path"]
-    shadow_correction_params = destripe_config["shadow_correction"]
 
-    note_shadow_correction = "Using the flats that come from the microscope"
+    note_shadow_correction = "Applying the flats that come from the microscope"
 
-    if shadow_correction_params.get("retrospective"):
+    if destripe_config.get("retrospective"):
         note_shadow_correction = """The flats were computed from the data \
             with basicpy, these were applied with the destriping algorithm \
             and with the current dark from the microscope.
@@ -134,7 +134,6 @@ def generate_data_processing(
 
     del destripe_config["input_path"]
     del destripe_config["output_path"]
-    del destripe_config["shadow_correction"]
 
     pipeline_process = PipelineProcess(
         data_processes=[
@@ -148,10 +147,10 @@ def generate_data_processing(
                 code_version=destripe_version,
                 code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
                 parameters=destripe_config,
-                notes=f"Destriping for channel {channel_name} in {destripe_config['output_format']} format",
+                notes=f"Destriping for channel {channel_name} in zarr format",
             ),
             DataProcess(
-                name=ProcessName.IMAGE_FLATFIELD_CORRECTION,
+                name=ProcessName.IMAGE_FLAT_FIELD_CORRECTION,
                 software_version=destripe_version,
                 start_date_time=start_time,
                 end_date_time=end_time,
@@ -159,7 +158,7 @@ def generate_data_processing(
                 output_location=str(output_path),
                 code_version=destripe_version,
                 code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
-                parameters=shadow_correction_params,
+                parameters={},
                 notes=note_shadow_correction,
             ),
         ],
@@ -375,181 +374,140 @@ def get_microscope_flats(
     return flatfield, metadata_json
 
 
+def get_resolution(acquisition_config):
+    # Grabbing a tile with metadata from acquisition - we assume all dataset
+    # was acquired with the same resolution
+    tile_coord_transforms = acquisition_config["tiles"][0]["coordinate_transformations"]
+
+    scale_transform = [
+        x["scale"] for x in tile_coord_transforms if x["type"] == "scale"
+    ][0]
+
+    x = float(scale_transform[0])
+    y = float(scale_transform[1])
+    z = float(scale_transform[2])
+
+    return x, y, z
+
+
 def run():
     """Validates parameters and runs the destriper"""
 
-    no_cells_config = {
-        "wavelet": "db3",
-        "level": None,
-        "sigma": 128,
-        "max_threshold": 12,
-    }
-    cells_config = {"wavelet": "db3", "level": None, "sigma": 64, "max_threshold": 3}
+    data_folder = Path(os.path.abspath("../data"))
+    results_folder = Path(os.path.abspath("../results"))
+    scratch_folder = Path(os.path.abspath("../scratch"))
 
-    # Check if we have flat field and dark field
-    darkfield = None
-    flatfield = None
-    tile_config = None  # Used when the flats come from the microscope
-    retrospective = False
-    apply_microscope_flats = False  # If we want to apply the flats from the microscope
-    shading_parameters = {}
+    # It is assumed that these files
+    # will be in the data folder
+    required_input_elements = [
+        f"{data_folder}/acquisition.json",
+    ]
 
-    results_folder = os.path.abspath("../results")
-    data_folder = os.path.abspath("../data")
+    #     missing_files = validate_capsule_inputs(required_input_elements)
 
-    # Dataset configuration in the processing_manifest.json
-    pipeline_config, smartspim_dataset = get_data_config(data_folder=data_folder)
+    #     print(f"Data in folder: {list(data_folder.glob('*'))}")
 
-    print(f"Processing dataset {smartspim_dataset}")
+    #     if len(missing_files):
+    #         raise ValueError(
+    #             f"We miss the following files in the capsule input: {missing_files}"
+    #         )
 
-    # Getting channel -> In the pipeline we must pass SmartSPIM/channel_name to data folder
-    channel_name = glob(f"{data_folder}/Ex_*_Em_*/")[0].split("/")[-2]
-    input_path_str = f"{data_folder}/{channel_name}"
-    input_channel_path = Path(os.path.abspath(input_path_str))
+    dask.config.set({"distributed.worker.memory.terminate": False})
 
-    # Output path will be in /results/{channel_name}
-    output_path = Path(results_folder).joinpath(f"{channel_name}")
-
-    # Derivatives path
-    derivatives_folder = Path(f"{data_folder}/derivatives")
-
-    # Metadata output
-    metadata_flats_dir = f"{results_folder}/flatfield_correction_{channel_name}"
-    utils.create_folder(dest_dir=metadata_flats_dir)
-
-    logger = utils.create_logger(output_log_path=metadata_flats_dir)
-    utils.print_system_information(logger)
-
-    logger.info(f"Input channel: {input_channel_path}")
-    logger.info(f"Output path: {output_path}")
-    logger.info(f"Derivatives folder: {derivatives_folder}")
-
-    # Tracking compute resources
-    # Subprocess to track used resources
-    manager = multiprocessing.Manager()
-    time_points = manager.list()
-    cpu_percentages = manager.list()
-    memory_usages = manager.list()
-
-    profile_process = multiprocessing.Process(
-        target=utils.profile_resources,
-        args=(
-            time_points,
-            cpu_percentages,
-            memory_usages,
-            20,
-        ),
+    BASE_PATH = data_folder.joinpath("SmartSPIM_717381_2024-07-03_10-49-01-zarr")
+    acquisition_path = data_folder.joinpath(
+        "SmartSPIM_717381_2024-07-03_10-49-01/acquisition.json"
     )
-    profile_process.daemon = True
-    profile_process.start()
 
-    if os.path.exists(derivatives_folder):
+    acquisition_dict = utils.read_json_as_dict(acquisition_path)
 
-        # Reading darkfield
-        darkfield_path = str(derivatives_folder.joinpath("DarkMaster_cropped.tif"))
-        logger.info("Loading darkfield from path: {darkfield_path}")
+    if not len(acquisition_dict):
+        raise ValueError(
+            f"Not able to read acquisition metadata from {acquisition_path}"
+        )
 
-        try:
-            darkfield = tif.imread(darkfield_path)
-        except FileNotFoundError:
-            raise FileNotFoundError(
-                f"Please, provide the current dark from the microscope! Provided path: {darkfield_path}"
+    voxel_resolution = get_resolution(acquisition_dict)
+
+    derivatives_path = data_folder.joinpath(
+        "SmartSPIM_717381_2024-07-03_10-49-01/derivatives"
+    )
+
+    print(f"Derivatives path data: {list(derivatives_path.glob('*'))}")
+
+    channels = [
+        folder.name
+        for folder in list(BASE_PATH.glob("Ex_*_Em_*"))
+        if os.path.isdir(folder)
+    ]
+    laser_tiles_path = data_folder.joinpath("laser_tiles.json")
+
+    if not laser_tiles_path.exists():
+        raise FileNotFoundError(f"Path {laser_tiles_path} does not exist!")
+
+    laser_tiles = utils.read_json_as_dict(str(laser_tiles_path))
+
+    print(f"Laser tiles: {laser_tiles}")
+
+    if len(channels):
+
+        for channel_name in channels:
+            estimated_channel_flats = natsorted(
+                list(
+                    data_folder.glob(
+                        f"717381_flats_test/estimated_flat_laser_{channel_name}*.tif"
+                    )
+                )
             )
 
-        if apply_microscope_flats:
-            flatfield, tile_config = get_microscope_flats(
+            if not len(estimated_channel_flats):
+                raise FileNotFoundError(
+                    f"Error while retrieving flats from the data folder for channel {channel_name}"
+                )
+
+            parameters = {
+                "input_path": BASE_PATH.joinpath(channel_name),
+                "output_path": str(results_folder),
+                "no_cells_config": {
+                    "wavelet": "db3",
+                    "level": None,
+                    "sigma": 128,
+                    "max_threshold": 12,
+                },
+                "cells_config": {
+                    "wavelet": "db3",
+                    "level": None,
+                    "sigma": 64,
+                    "max_threshold": 3,
+                },
+                "retrospective": True,  # Default behavior
+            }
+
+            destriping_start_time = time()
+
+            zarr_destriper.destripe_channel(
+                zarr_dataset_path=BASE_PATH,
                 channel_name=channel_name,
-                derivatives_folder=derivatives_folder,
+                results_folder=results_folder,
+                derivatives_path=derivatives_path,
+                xyz_resolution=voxel_resolution,
+                estimated_channel_flats=estimated_channel_flats,
+                laser_tiles=laser_tiles,
+                parameters=parameters,
             )
-            # Normalizing and inverting flatfields from the microscope
-            flatfield = normalize_image(flatfield)
-            flatfield = invert_image(flatfield)
 
-        else:
-            logger.info("Ignoring microscope flats...")
+            destriping_end_time = time()
+
+            generate_data_processing(
+                channel_name=channel_name,
+                destripe_version=__version__,
+                destripe_config=parameters,
+                start_time=destriping_start_time,
+                end_time=destriping_end_time,
+                output_directory=results_folder,
+            )
 
     else:
-        raise FileNotFoundError(f"Derivatives path not provided. Darkfield not loaded!")
-
-    if flatfield is None or tile_config is None:
-        logger.info("Estimating flats with BasicPy...")
-        shading_parameters = {
-            "get_darkfield": True,
-            "smoothness_flatfield": 1.0,
-            "smoothness_darkfield": 20,
-            "sort_intensity": True,
-            "max_reweight_iterations": 35,
-            # "resize_mode":"skimage_dask"
-        }
-
-        flatfield, basicpy_darkfield, baseline = get_retrospective_flatfield_correction(
-            data_folder=data_folder,
-            flats_dir=metadata_flats_dir,
-            no_cells_config=no_cells_config,
-            cells_config=cells_config,
-            shading_parameters=shading_parameters,
-            logger=logger,
-        )
-        retrospective = True
-
-    shading_parameters["retrospective"] = retrospective
-
-    logger.info(f"Input channel path: {input_channel_path}")
-
-    if "derivatives" in str(input_channel_path):
-        raise ValueError(f"Unknown problem! Why this? {input_channel_path}")
-
-    parameters = {
-        "input_path": input_channel_path,
-        "output_path": output_path,
-        "workers": 32,
-        "chunks": 1,
-        "high_int_filt_params": cells_config,
-        "low_int_filt_params": no_cells_config,
-        "compression": 1,
-        "output_format": ".tiff",
-        "output_dtype": None,
-        "shadow_correction": {
-            "retrospective": retrospective,
-            "flatfield": flatfield,  # Estimated with basicpy or using the flats from the microscope
-            "darkfield": darkfield,  # Coming from the microscope
-            "tile_config": tile_config,
-        },
-    }
-    logger.info(f"parameters: {parameters}")
-
-    destriping_start_time = datetime.now()
-    if input_channel_path.is_dir():
-        logger.info(
-            f"Starting destriping and flatfielding with restrospective approach? {retrospective}"
-        )
-        destriper.batch_filter(**parameters)
-
-    destriping_end_time = datetime.now()
-
-    # Overwriting shadow correction estimated fields with shading parameters
-    # To save them in processing.json
-    parameters["shadow_correction"] = shading_parameters
-    generate_data_processing(
-        channel_name=channel_name,
-        destripe_version=__version__,
-        destripe_config=parameters,
-        start_time=destriping_start_time,
-        end_time=destriping_end_time,
-        output_directory=results_folder,
-    )
-
-    # Getting tracked resources and plotting image
-    utils.stop_child_process(profile_process)
-
-    if len(time_points):
-        utils.generate_resources_graphs(
-            time_points,
-            cpu_percentages,
-            memory_usages,
-            metadata_flats_dir,
-            "smartspim_destripe",
-        )
+        print(f"No channels to process in {BASE_PATH}")
 
 
 if __name__ == "__main__":
