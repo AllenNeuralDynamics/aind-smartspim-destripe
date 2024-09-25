@@ -19,7 +19,7 @@ RUN pip install -U --no-cache-dir \
     PyWavelets==1.4.1 \
     tqdm==4.65.0 \
     pathlib2==2.3.7.post1 \
-    aind-data-schema==0.22.1 \
+    aind-data-schema==1.0.0 \
     matplotlib==3.7.3 \
     psutil==5.9.5 \
     BaSiCPy==1.1.0 \

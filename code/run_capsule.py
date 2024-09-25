@@ -7,7 +7,7 @@ import os
 from datetime import datetime
 from glob import glob
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import aind_smartspim_destripe.flatfield_estimation as flat_est
 import numpy as np
@@ -150,11 +150,10 @@ def generate_data_processing(
 
     input_path = destripe_config["input_path"]
     output_path = destripe_config["output_path"]
-    shadow_correction_params = destripe_config["shadow_correction"]
 
-    note_shadow_correction = "Using the flats that come from the microscope"
+    note_shadow_correction = "Applying the flats that come from the microscope"
 
-    if shadow_correction_params.get("retrospective"):
+    if destripe_config.get("retrospective"):
         note_shadow_correction = """The flats were computed from the data \
             with basicpy, these were applied with the destriping algorithm \
             and with the current dark from the microscope.
@@ -162,7 +161,6 @@ def generate_data_processing(
 
     del destripe_config["input_path"]
     del destripe_config["output_path"]
-    del destripe_config["shadow_correction"]
 
     pipeline_process = PipelineProcess(
         data_processes=[
@@ -176,10 +174,10 @@ def generate_data_processing(
                 code_version=destripe_version,
                 code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
                 parameters=destripe_config,
-                notes=f"Destriping for channel {channel_name} in {destripe_config['output_format']} format",
+                notes=f"Destriping for channel {channel_name} in zarr format",
             ),
             DataProcess(
-                name=ProcessName.IMAGE_FLATFIELD_CORRECTION,
+                name=ProcessName.IMAGE_FLAT_FIELD_CORRECTION,
                 software_version=destripe_version,
                 start_date_time=start_time,
                 end_date_time=end_time,
@@ -187,13 +185,13 @@ def generate_data_processing(
                 output_location=str(output_path),
                 code_version=destripe_version,
                 code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
-                parameters=shadow_correction_params,
+                parameters={},
                 notes=note_shadow_correction,
             ),
         ],
         processor_full_name="Camilo Laiton",
         pipeline_url="https://github.com/AllenNeuralDynamics/aind-smartspim-pipeline",
-        pipeline_version="1.5.0",
+        pipeline_version="1.6.0",
     )
 
     processing = Processing(
