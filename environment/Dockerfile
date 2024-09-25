@@ -9,7 +9,6 @@ COPY git-askpass /
 
 RUN conda create -n destriper python=3.8 -y
 SHELL ["conda", "run", "-n", "destriper", "/bin/bash", "-c"]
-# RUN conda install -c conda-forge awscli
 
 RUN pip install -U --no-cache-dir \
     numpy==1.24.2 \
