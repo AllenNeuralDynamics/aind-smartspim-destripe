@@ -1,3 +1,4 @@
+import json
 import logging
 import multiprocessing
 import os
@@ -6,12 +7,16 @@ from pathlib import Path
 from time import time
 from typing import Callable, Dict, List, Optional, Tuple, Type, cast
 
+import dask
 import dask.array as da
 import filtering as fl
 import numpy as np
 import psutil
+import tifffile as tif
 import xarray_multiscale
 import zarr
+from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
+                                              Processing, ProcessName)
 from aind_large_scale_prediction._shared.types import ArrayLike, PathLike
 from aind_large_scale_prediction.generator.dataset import create_data_loader
 from aind_large_scale_prediction.generator.utils import (
@@ -19,6 +24,7 @@ from aind_large_scale_prediction.generator.utils import (
 from aind_large_scale_prediction.io import ImageReaderFactory
 from blocked_zarr_writer import BlockedArrayWriter
 from dask.distributed import Client, LocalCluster, performance_report
+from natsort import natsorted
 from numcodecs import blosc
 from ome_zarr.format import CurrentFormat
 from ome_zarr.io import parse_url
@@ -26,10 +32,7 @@ from ome_zarr.writer import write_multiscales_metadata
 from scipy.ndimage import binary_fill_holes, grey_dilation, map_coordinates
 from skimage.measure import regionprops
 from utils import utils
-import tifffile as tif
-from pathlib import Path
-import json
-from natsort import natsorted
+
 
 def read_json_as_dict(filepath: str) -> dict:
     """
@@ -62,6 +65,7 @@ def read_json_as_dict(filepath: str) -> dict:
     #             print(f"Reading {filepath} forced: {dictionary}")
 
     return dictionary
+
 
 def get_microscope_flats(
     channel_name: str, derivatives_folder: str
@@ -148,6 +152,189 @@ def get_microscope_flats(
             )
 
     return flatfield, metadata_json
+
+
+def get_microscope_flats(
+    channel_name: str, derivatives_folder: str
+) -> Tuple[np.ndarray]:
+    """
+    Gets the microscope flats
+
+    Parameters
+    ----------
+    channel_name : str
+        Channel to be processed.
+
+    derivatives_folder: str
+        Path where the derivatives folder is.
+
+    logger: logging.Logger
+        Logging object
+
+    Raises
+    ------
+    KeyError:
+        Raises whenever we can't find the XY folders
+        or brain side.
+
+    Returns
+    -------
+    Tuple[List[ArrayLike], dictionary]
+        Tuple with the flafields per brain hemisphere,
+        current dark from the microscope and metadata.json
+        content.
+    """
+    flatfield = None
+    metadata_json = None
+
+    waves = [p for p in channel_name.split("_") if p.isdigit()]
+
+    metadata_json_path = derivatives_folder.joinpath("metadata.json")
+
+    if metadata_json_path.exists() and len(waves):
+        # If the flats exist, I can't apply the flats
+        # without the metadata.json since I do not know which
+        # brain hemisphere is correct for each flat
+
+        orig_metadata_json = utils.read_json_as_dict(filepath=metadata_json_path)
+        curr_emision_wave = int(waves[0])
+        tile_config = orig_metadata_json.get("tile_config")
+        metadata_json = {}
+
+        if tile_config is None:
+            raise ValueError("Please, verify metadata.json")
+
+        # Getting only XY folders for the current emission wave
+        # to know which locations used which flatfield
+        for time_step, value in tile_config.items():
+            config_em_wave = value.get("Laser")
+
+            if int(config_em_wave) == curr_emision_wave:
+                x_folder = value.get("X")
+                y_folder = value.get("Y")
+                brain_side = value.get("Side")  # 0 left hemisphere, 1 right hemisphere
+
+                if x_folder is None or y_folder is None or brain_side is None:
+                    raise KeyError("Please, check the data in metadata.json")
+
+                if metadata_json.get(x_folder) is None:
+                    metadata_json[x_folder] = {}
+
+                metadata_json[x_folder][y_folder] = int(brain_side)
+
+        # The flats are one per hemisphere, we need to check
+        # metadata.json to know which tile is in which laser
+        flatfield = [
+            tif.imread(g)
+            for g in natsorted(
+                glob(f"{derivatives_folder}/FlatReal{curr_emision_wave}_*.tif")
+            )
+            if os.path.exists(g)
+        ]
+
+        # reading flatfields, we should have 2, one per brain hemisphere
+        if len(flatfield) != 2:
+            raise ValueError(
+                f"Error while reading the microscope flatfields: {flatfield}"
+            )
+
+    return flatfield, metadata_json
+
+
+def generate_data_processing(
+    channel_name: str,
+    destripe_version: str,
+    destripe_config: dict,
+    start_time,
+    end_time,
+    output_directory: str,
+):
+    """
+    Generates a destriping data processing
+    for the processed channel.
+
+    Paramters
+    -----------
+    channel_name: str
+        SmartSPIM channel to process
+
+    destripe_version: str
+        Destriping version
+
+    input_path: str
+        Path where the images are located
+
+    output_path: str
+        Path where the images are stored
+
+    destripe_config: dict
+        Dictionary with the configuration
+        for the destriping algorithm
+
+    note_shadow_correction: str
+        Shadow correction notes
+
+    start_time: datetime
+        Time the destriping process
+        started
+
+    end_time: datetime
+        Time the destriping process
+        ended
+
+    output_directory: str
+        Path where we want to store the
+        processing manifest
+
+    """
+    output_directory = os.path.abspath(output_directory)
+
+    if not os.path.exists(output_directory):
+        raise FileNotFoundError(
+            f"Please, check that this folder exists {output_directory}"
+        )
+
+    input_path = destripe_config["input_path"]
+    output_path = destripe_config["output_path"]
+
+    note_shadow_correction = """The flats were computed from the data \
+    with basicpy, these were applied with the destriping algorithm \
+    and with the current dark from the microscope.
+    """
+
+    del destripe_config["input_path"]
+    del destripe_config["output_path"]
+
+    pipeline_process = PipelineProcess(
+        data_processes=[
+            DataProcess(
+                name=ProcessName.IMAGE_DESTRIPING,
+                software_version=destripe_version,
+                start_date_time=start_time,
+                end_date_time=end_time,
+                input_location=str(input_path),
+                output_location=str(output_path),
+                code_version=destripe_version,
+                code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
+                parameters=destripe_config,
+                notes=f"Destriping for channel {channel_name} in zarr format",
+            ),
+        ],
+        processor_full_name="Camilo Laiton",
+        pipeline_url="https://github.com/AllenNeuralDynamics/aind-smartspim-pipeline",
+        pipeline_version="3.0.0",
+    )
+
+    processing = Processing(
+        processing_pipeline=pipeline_process,
+        notes="This processing only contains metadata about destriping \
+        and needs to be compiled with other steps at the end",
+    )
+
+    with open(
+        f"{output_directory}/image_destriping_{channel_name}_processing.json", "w"
+    ) as f:
+        f.write(processing.model_dump_json(indent=3))
 
 
 def pad_array_n_d(arr: ArrayLike, dim: int = 5) -> ArrayLike:
@@ -306,12 +493,12 @@ def execute_worker(
 
     output_slices = tuple(output_slices)
     unpadded_local_slice = tuple(unpadded_local_slice)
-    
+
     filtered_data = np.zeros_like(data)
-    
+
     input_tile_path = dataset_name.replace(".zarr", "")
-#     print("Input tile path: ", dataset_name, input_tile_path)
-    
+    #     print("Input tile path: ", dataset_name, input_tile_path)
+
     for plane_idx in range(data.shape[-3]):
         filtered_data[plane_idx, ...] = fl.filter_stripes(
             image=data[plane_idx, ...],
@@ -329,7 +516,10 @@ def execute_worker(
     filtered_data_converted = np.clip(filtered_data, 0, 65535).astype(np.uint16)
     #     filtered_data_converted = (filtered_data_converted / filtered_data.max() * 65535).astype(np.uint16)
 
-    return filtered_data_converted, output_slices
+    output_destriped_zarr[output_slices] = filtered_data
+
+
+#     return filtered_data_converted, output_slices
 
 
 def _execute_worker(params):
@@ -757,7 +947,7 @@ def compute_multiscale(
         previous_scale_pyramid = compute_pyramid(
             data=previous_scale,
             scale_axis=new_scale_factor,
-            chunks=(1, 1, 128, 128, 128),
+            chunks=(1, 1, 64, 128, 128),
             n_lvls=2,
         )
         array_to_write = previous_scale_pyramid[-1]
@@ -781,7 +971,123 @@ def compute_multiscale(
     print(f"Time to write the dataset: {end_time - start_time}")
     print(f"Written pyramid: {written_pyramid}")
 
-    client.shutdown()
+    try:
+        client.shutdown()
+    except Exception as e:
+        print(f"Handling error {e} when closing client.")
+
+
+def producer(
+    producer_queue,
+    zarr_data_loader,
+    logger,
+    n_consumers,
+):
+    """
+    Function that sends blocks of data to
+    the queue to be acquired by the workers.
+
+    Parameters
+    ----------
+    producer_queue: multiprocessing.Queue
+        Multiprocessing queue where blocks
+        are sent to be acquired by workers.
+
+    zarr_data_loader: DataLoader
+        Zarr data loader
+
+    logger: logging.Logger
+        Logging object
+
+    n_consumers: int
+        Number of consumers
+    """
+    # total_samples = sum(zarr_dataset.internal_slice_sum)
+    worker_pid = os.getpid()
+
+    logger.info(f"Starting producer queue: {worker_pid}")
+    for i, sample in enumerate(zarr_data_loader):
+
+        producer_queue.put(
+            {
+                "i": i,
+                "data": sample.batch_tensor.numpy(),
+                "batch_super_chunk": sample.batch_super_chunk[0],
+                "batch_internal_slice": sample.batch_internal_slice,
+            },
+            block=True,
+        )
+        logger.info(f"[+] Worker {worker_pid} setting block {i}")
+
+    for i in range(n_consumers):
+        producer_queue.put(None, block=True)
+
+    # zarr_dataset.lazy_data.shape
+    logger.info(f"[+] Worker {worker_pid} -> Producer finished producing data.")
+
+
+def consumer(
+    queue,
+    zarr_dataset,
+    worker_params,
+):
+    """
+    Function executed in every worker
+    to acquire data.
+
+    Parameters
+    ----------
+    queue: multiprocessing.Queue
+        Multiprocessing queue where blocks
+        are sent to be acquired by workers.
+
+    zarr_dataset: ArrayLike
+        Zarr dataset
+
+    worker_params: dict
+        Worker parametes to execute a function.
+
+    results_dict: multiprocessing.Dict
+        Results dictionary where outputs
+        are stored.
+    """
+    logger = worker_params["logger"]
+    worker_results = {}
+    worker_pid = os.getpid()
+    logger.info(f"Starting consumer worker -> {worker_pid}")
+
+    # Setting initial wait so all processes could be created
+    # And producer can start generating data
+    # sleep(60)
+
+    # Start processing
+    total_samples = sum(zarr_dataset.internal_slice_sum)
+
+    while True:
+        streamed_dict = queue.get(block=True)
+
+        if streamed_dict is None:
+            logger.info(f"[-] Worker {worker_pid} -> Turn off signal received...")
+            break
+
+        logger.info(
+            f"[-] Worker {worker_pid} -> Consuming {streamed_dict['i']} - {streamed_dict['data'].shape} - Super chunk val: {zarr_dataset.curr_super_chunk_pos.value} - internal slice sum: {total_samples}"
+        )
+
+        execute_worker(
+            data=streamed_dict["data"],
+            batch_super_chunk=streamed_dict["batch_super_chunk"],
+            batch_internal_slice=streamed_dict["batch_internal_slice"],
+            cells_config=worker_params["cells_config"],
+            no_cells_config=worker_params["no_cells_config"],
+            overlap_prediction_chunksize=worker_params["overlap_prediction_chunksize"],
+            output_destriped_zarr=worker_params["output_zarr"],
+            shadow_correction=worker_params["shadow_correction"],
+            dataset_name=worker_params["dataset_name"],
+            logger=logger,
+        )
+
+    logger.info(f"[-] Worker {worker_pid} -> Consumer finished consuming data.")
 
 
 def destripe_zarr(
@@ -795,6 +1101,9 @@ def destripe_zarr(
     super_chunksize: Tuple[int, ...],
     results_folder: PathLike,
     derivatives_path,
+    xyz_resolution,
+    parameters,
+    flatfield=None,
     lazy_callback_fn: Optional[Callable[[ArrayLike], ArrayLike]] = None,
 ):
     """
@@ -843,14 +1152,10 @@ def destripe_zarr(
         is located.
 
     """
-    no_cells_config = {
-        "wavelet": "db3",
-        "level": None,
-        "sigma": 128,
-        "max_threshold": 12,
-    }
-    cells_config = {"wavelet": "db3", "level": None, "sigma": 64, "max_threshold": 3}
-    
+
+    no_cells_config = parameters["no_cells_config"]
+    cells_config = parameters["cells_config"]
+
     co_cpus = int(utils.get_code_ocean_cpu_limit())
 
     if n_workers > co_cpus:
@@ -945,7 +1250,7 @@ def destripe_zarr(
     output_zarr = new_channel_group.create_dataset(
         name=0,
         shape=original_dataset_shape,
-        chunks=(1, 1, 128, 128, 128),
+        chunks=(1, 1, 64, 128, 128),
         dtype=np.uint16,
         compressor=blosc.Blosc(cname="zstd", clevel=3, shuffle=blosc.SHUFFLE),
         dimension_separator="/",
@@ -977,14 +1282,11 @@ def destripe_zarr(
     curr_picked_blocks = 0
 
     logger.info(f"Number of workers processing data: {exec_n_workers}")
-    
-    # Getting flatfield
 
     darkfield = None
-    flatfield = None
     tile_config = None  # Used when the flats come from the microscope
-    retrospective = False
-    apply_microscope_flats = True  # If we want to apply the flats from the microscope
+    retrospective = True
+    apply_microscope_flats = not retrospective
     shading_parameters = {}
 
     if os.path.exists(derivatives_path):
@@ -999,41 +1301,19 @@ def destripe_zarr(
             raise FileNotFoundError(
                 f"Please, provide the current dark from the microscope! Provided path: {darkfield_path}"
             )
-    
+
         if apply_microscope_flats:
             channel_name = Path(output_destriped_zarr).parent.name
-            print("CHANNEL NAME: ", channel_name)
             flatfield, tile_config = get_microscope_flats(
                 channel_name=str(channel_name),
                 derivatives_folder=derivatives_path,
             )
             # Normalizing and inverting flatfields from the microscope
             flatfield = fl.normalize_image(flatfield)
-#             flatfield = fl.invert_image(flatfield)
+        #             flatfield = fl.invert_image(flatfield)
 
         else:
             logger.info("Ignoring microscope flats...")
-    
-    if flatfield is None or tile_config is None:
-        logger.info("Estimating flats with BasicPy...")
-        shading_parameters = {
-            "get_darkfield": False,
-            "smoothness_flatfield": 1.0,
-            "smoothness_darkfield": 20,
-            "sort_intensity": True,
-            "max_reweight_iterations": 35,
-            # "resize_mode":"skimage_dask"
-        }
-
-        flatfield, basicpy_darkfield, baseline = get_retrospective_flatfield_correction(
-            data_folder=data_folder,
-            flats_dir=metadata_flats_dir,
-            no_cells_config=no_cells_config,
-            cells_config=cells_config,
-            shading_parameters=shading_parameters,
-            logger=logger,
-        )
-        retrospective = True
 
     shadow_correction = {
         "retrospective": retrospective,
@@ -1042,130 +1322,74 @@ def destripe_zarr(
         "tile_config": tile_config,
     }
 
-    for i, sample in enumerate(zarr_data_loader):
-        logger.info(
-            f"Batch {i}: {sample.batch_tensor.shape} - Pinned?: {sample.batch_tensor.is_pinned()} - dtype: {sample.batch_tensor.dtype} - device: {sample.batch_tensor.device}"  # noqa: E501
+    #### USING QUEUES test
+
+    # Create consumer processes
+    factor = 20
+
+    # Create a multiprocessing queue
+    producer_queue = multiprocessing.Queue(maxsize=exec_n_workers * factor)
+
+    worker_params = {
+        "cells_config": cells_config,
+        "no_cells_config": no_cells_config,
+        "overlap_prediction_chunksize": overlap_prediction_chunksize,
+        "output_zarr": output_zarr,
+        "shadow_correction": shadow_correction,
+        "dataset_name": dataset_name,
+        "logger": logger,
+    }
+
+    logger.info(f"Setting up {exec_n_workers} workers...")
+    consumers = [
+        multiprocessing.Process(
+            target=consumer,
+            args=(
+                producer_queue,
+                zarr_dataset,
+                worker_params,
+            ),
         )
+        for _ in range(exec_n_workers)
+    ]
 
-        picked_blocks.append(
-            {
-                "data": sample.batch_tensor.numpy(),
-                "batch_super_chunk": sample.batch_super_chunk[0],
-                "batch_internal_slice": sample.batch_internal_slice,
-                "cells_config": cells_config,
-                "no_cells_config": no_cells_config,
-                "overlap_prediction_chunksize": overlap_prediction_chunksize,
-                "output_destriped_zarr": output_zarr,
-                "shadow_correction": shadow_correction,
-                "dataset_name": dataset_name,
-                "logger": logger,
-            }
-        )
-        curr_picked_blocks += 1
+    # Start consumer processes
+    for consumer_process in consumers:
+        consumer_process.start()
 
-        if curr_picked_blocks == exec_n_workers:
+    # Main process acts as the producer
+    producer(producer_queue, zarr_data_loader, logger, exec_n_workers)
 
-            results = helper_schedule_jobs(picked_blocks, pool, logger)
+    # Wait for consumer processes to finish
+    for consumer_process in consumers:
+        consumer_process.join()
 
-            # Printing result locations
-            save_data = []
-
-            min_start_loc = None
-            max_stop_loc = None
-
-            for i, (out_img, loc) in enumerate(results):
-
-                if i == 0:
-                    min_start_loc = loc[-3].start
-                    max_stop_loc = loc[-3].stop
-
-                else:
-                    if loc[-3].start < min_start_loc:
-                        min_start_loc = loc[-3].start
-
-                    if loc[-3].stop > max_stop_loc:
-                        max_stop_loc = loc[-3].stop
-
-                save_data.append(out_img)
-
-            out_img = np.concatenate(save_data, axis=-3)
-
-            print(
-                "Concatenated numpy arr: ", out_img.shape, min_start_loc, max_stop_loc
-            )
-            loc = (
-                slice(0, 1),
-                slice(0, 1),
-                slice(min_start_loc, max_stop_loc),
-                results[0][-1][-2],
-                results[0][-1][-1],
-            )
-            #             print(f"output location: {loc}")
-            output_zarr[loc] = out_img
-
-            curr_picked_blocks = 0
-            picked_blocks = []
-
-    if curr_picked_blocks != 0:
-        logger.info(f"Blocks not processed inside of loop: {curr_picked_blocks}")
-        results = helper_schedule_jobs(picked_blocks, pool, logger)
-
-        # Printing result locations
-        save_data = []
-
-        min_start_loc = None
-        max_stop_loc = None
-
-        for i, (out_img, loc) in enumerate(results):
-
-            if i == 0:
-                min_start_loc = loc[-3].start
-                max_stop_loc = loc[-3].stop
-
-            else:
-                if loc[-3].start < min_start_loc:
-                    min_start_loc = loc[-3].start
-
-                if loc[-3].stop > max_stop_loc:
-                    max_stop_loc = loc[-3].stop
-
-            save_data.append(out_img)
-
-        out_img = np.concatenate(save_data, axis=-3)
-
-        print("Concatenated numpy arr: ", out_img.shape, min_start_loc, max_stop_loc)
-        loc = (
-            slice(0, 1),
-            slice(0, 1),
-            slice(min_start_loc, max_stop_loc),
-            results[0][-1][-2],
-            results[0][-1][-1],
-        )
-        output_zarr[loc] = out_img
-
-        # Setting variables back to init
-        curr_picked_blocks = 0
-        picked_blocks = []
-
-    # Closing pool of workers
-    pool.close()
+    end_time = time()
 
     scale_factor = [2, 2, 2]
+
+    multiscale_time_start = time()
 
     compute_multiscale(
         output_zarr=output_zarr,
         zarr_group=new_channel_group,
         scale_factor=scale_factor,
         n_workers=co_cpus,
-        voxel_size=[2.0, 1.8, 1.8],
+        voxel_size=[
+            xyz_resolution[-1],
+            xyz_resolution[-2],
+            xyz_resolution[-3],
+        ],
         image_name=dataset_name,
         n_levels=3,
         threads_per_worker=1,
     )
+    multiscale_time_end = time()
 
-    end_time = time()
-
-    logger.info(f"Processing time: {end_time - start_time} seconds")
+    logger.info(f"Processing destripe flatfield time: {end_time - start_time} seconds")
+    logger.info(
+        f"Processing multiscale time: {multiscale_time_end - multiscale_time_start} seconds"
+    )
 
     # Getting tracked resources and plotting image
     utils.stop_child_process(profile_process)
@@ -1180,50 +1404,231 @@ def destripe_zarr(
         )
 
 
-def destripe_channel(zarr_dataset_path, derivatives_path, channel_name, results_folder):
+def destripe_channel(
+    zarr_dataset_path,
+    derivatives_path,
+    channel_name,
+    results_folder,
+    xyz_resolution,
+    estimated_channel_flats,
+    laser_tiles,
+):
     """Main function"""
     channel_dataset = zarr_dataset_path.joinpath(channel_name)
-    
+
+    # Parameters for destriping
+    parameters = {
+        "input_path": str(channel_dataset),
+        "output_path": str(results_folder),
+        "no_cells_config": {
+            "wavelet": "db3",
+            "level": None,
+            "sigma": 128,
+            "max_threshold": 12,
+        },
+        "cells_config": {
+            "wavelet": "db3",
+            "level": None,
+            "sigma": 64,
+            "max_threshold": 3,
+        },
+    }
+    start_time = time()
+
+    destriped_data_folder = results_folder.joinpath("destriped_data")
+
+    utils.create_folder(destriped_data_folder)
+
     for tile_path in channel_dataset.glob("*.zarr"):
-        output_folder = results_folder.joinpath(f"{channel_name}/{tile_path.name}")
-        print(f"Processing {tile_path} - writing to: {output_folder} - derivatives: {derivatives_path}")
+        output_folder = destriped_data_folder.joinpath(
+            f"{channel_name}/{tile_path.name}"
+        )
+        print(
+            f"Processing {tile_path} - writing to: {output_folder} - derivatives: {derivatives_path}"
+        )
+
+        flatfield_path = None
+        for side, tiles in laser_tiles.items():
+            if tile_path.stem in tiles:
+                flatfield_path = estimated_channel_flats[int(side)]
+                break
+
+        if flatfield_path is None:
+            raise ValueError(f"Tile {tile_path} not found in {laser_tiles}")
+
+        flatfield = tif.imread(str(flatfield_path))
+        print(f"Reading flatfield from {flatfield_path} - shape: {flatfield.shape}")
 
         destripe_zarr(
             dataset_path=tile_path,
             multiscale="0",
             output_destriped_zarr=output_folder,
-            prediction_chunksize=(16, 1600, 2000),
+            prediction_chunksize=(64, 1600, 2000),
             target_size_mb=3072,
             n_workers=0,
             batch_size=1,
-            super_chunksize=(256, 1600, 2000),
+            super_chunksize=(384, 1600, 2000),
             results_folder=results_folder,
             derivatives_path=derivatives_path,
+            xyz_resolution=xyz_resolution,
+            parameters=parameters,
+            flatfield=flatfield,
             lazy_callback_fn=None,
         )
-    
-def main():
-    data_folder = Path(os.path.abspath("../data"))
-    results_folder = Path(os.path.abspath("../results"))
-    scratch_folder = Path(os.path.abspath("../scratch"))
-    
-    BASE_PATH = data_folder.joinpath(
-        "SmartSPIM_717381_2024-07-03_10-49-01-zarr"
+
+    end_time = time()
+
+    generate_data_processing(
+        channel_name=channel_name,
+        destripe_version="0.0.1",
+        destripe_config=parameters,
+        start_time=start_time,
+        end_time=end_time,
+        output_directory=results_folder,
     )
-    
-    derivatives_path = data_folder.joinpath(
-        "SmartSPIM_717381_2024-07-03_10-49-01/derivatives"
-    )
-    
-    channels = [ folder for folder in os.listdir(str(BASE_PATH)) if os.path.isdir(BASE_PATH.joinpath(folder)) ]
-    
+
+    channels = [
+        folder
+        for folder in os.listdir(str(BASE_PATH))
+        if os.path.isdir(BASE_PATH.joinpath(folder))
+    ]
+
     for channel_name in channels:
         destripe_channel(
             zarr_dataset_path=BASE_PATH,
             channel_name=channel_name,
             results_folder=results_folder,
-            derivatives_path=derivatives_path
+            derivatives_path=derivatives_path,
         )
+
+
+def get_resolution(acquisition_config):
+    # Grabbing a tile with metadata from acquisition - we assume all dataset
+    # was acquired with the same resolution
+    tile_coord_transforms = acquisition_config["tiles"][0]["coordinate_transformations"]
+
+    scale_transform = [
+        x["scale"] for x in tile_coord_transforms if x["type"] == "scale"
+    ][0]
+
+    x = float(scale_transform[0])
+    y = float(scale_transform[1])
+    z = float(scale_transform[2])
+
+    return x, y, z
+
+
+def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
+    """
+    Validates input elemts for a capsule in
+    Code Ocean.
+
+    Parameters
+    -----------
+    input_elements: List[str]
+        Input elements for the capsule. This
+        could be sets of files or folders.
+
+    Returns
+    -----------
+    List[str]
+        List of missing files
+    """
+
+    missing_inputs = []
+    for required_input_element in input_elements:
+        required_input_element = Path(required_input_element)
+
+        if not required_input_element.exists():
+            missing_inputs.append(str(required_input_element))
+
+    return missing_inputs
+
+
+def main():
+    data_folder = Path(os.path.abspath("../../data"))
+    results_folder = Path(os.path.abspath("../../results"))
+    scratch_folder = Path(os.path.abspath("../../scratch"))
+
+    # It is assumed that these files
+    # will be in the data folder
+    required_input_elements = [
+        f"{data_folder}/acquisition.json",
+    ]
+
+    #     missing_files = validate_capsule_inputs(required_input_elements)
+
+    #     print(f"Data in folder: {list(data_folder.glob('*'))}")
+
+    #     if len(missing_files):
+    #         raise ValueError(
+    #             f"We miss the following files in the capsule input: {missing_files}"
+    #         )
+
+    dask.config.set({"distributed.worker.memory.terminate": False})
+
+    BASE_PATH = data_folder.joinpath("SmartSPIM_717381_2024-07-03_10-49-01-zarr")
+    acquisition_path = data_folder.joinpath(
+        "SmartSPIM_717381_2024-07-03_10-49-01/acquisition.json"
+    )
+
+    acquisition_dict = utils.read_json_as_dict(acquisition_path)
+
+    if not len(acquisition_dict):
+        raise ValueError(
+            f"Not able to read acquisition metadata from {acquisition_path}"
+        )
+
+    voxel_resolution = get_resolution(acquisition_dict)
+
+    derivatives_path = data_folder.joinpath(
+        "SmartSPIM_717381_2024-07-03_10-49-01/derivatives"
+    )
+
+    print(f"Derivatives path data: {list(derivatives_path.glob('*'))}")
+
+    channels = [
+        folder.name
+        for folder in list(BASE_PATH.glob("Ex_*_Em_*"))
+        if os.path.isdir(folder)
+    ]
+    laser_tiles_path = data_folder.joinpath("laser_tiles.json")
+
+    if not laser_tiles_path.exists():
+        raise FileNotFoundError(f"Path {laser_tiles_path} does not exist!")
+
+    laser_tiles = utils.read_json_as_dict(str(laser_tiles_path))
+
+    print(f"Laser tiles: {laser_tiles}")
+
+    if len(channels):
+
+        for channel_name in channels:
+            estimated_channel_flats = natsorted(
+                list(
+                    data_folder.glob(
+                        f"717381_flats_test/estimated_flat_laser_{channel_name}*.tif"
+                    )
+                )
+            )
+
+            if not len(estimated_channel_flats):
+                raise FileNotFoundError(
+                    f"Error while retrieving flats from the data folder for channel {channel_name}"
+                )
+
+            destripe_channel(
+                zarr_dataset_path=BASE_PATH,
+                channel_name=channel_name,
+                results_folder=results_folder,
+                derivatives_path=derivatives_path,
+                xyz_resolution=voxel_resolution,
+                estimated_channel_flats=estimated_channel_flats,
+                laser_tiles=laser_tiles,
+            )
+
+    else:
+        print(f"No channels to process in {BASE_PATH}")
 
 
 if __name__ == "__main__":

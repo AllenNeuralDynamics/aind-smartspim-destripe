@@ -21,39 +21,6 @@ from aind_smartspim_destripe.filtering import invert_image, normalize_image
 from aind_smartspim_destripe.utils import utils
 
 
-def read_json_as_dict(filepath: str) -> dict:
-    """
-    Reads a json as dictionary.
-    Parameters
-    ------------------------
-    filepath: PathLike
-        Path where the json is located.
-    Returns
-    ------------------------
-    dict:
-        Dictionary with the data the json has.
-    """
-
-    dictionary = {}
-
-    if os.path.exists(filepath):
-        try:
-            with open(filepath) as json_file:
-                dictionary = json.load(json_file)
-
-        except UnicodeDecodeError:
-            print("Error reading json with utf-8, trying different approach")
-            # This might lose data, verify with Jeff the json encoding
-            with open(filepath, "rb") as json_file:
-                data = json_file.read()
-                data_str = data.decode("utf-8", errors="ignore")
-                dictionary = json.loads(data_str)
-
-    #             print(f"Reading {filepath} forced: {dictionary}")
-
-    return dictionary
-
-
 def get_data_config(
     data_folder: str,
     processing_manifest_path: Optional[str] = "processing_manifest.json",
@@ -88,8 +55,12 @@ def get_data_config(
     # Doing this because of Code Ocean, ideally we would have
     # a single dataset in the pipeline
 
-    derivatives_dict = read_json_as_dict(f"{data_folder}/{processing_manifest_path}")
-    data_description_dict = read_json_as_dict(f"{data_folder}/{data_description_path}")
+    derivatives_dict = utils.read_json_as_dict(
+        f"{data_folder}/{processing_manifest_path}"
+    )
+    data_description_dict = utils.read_json_as_dict(
+        f"{data_folder}/{data_description_path}"
+    )
 
     smartspim_dataset = data_description_dict["name"]
 
@@ -359,7 +330,7 @@ def get_microscope_flats(
         # without the metadata.json since I do not know which
         # brain hemisphere is correct for each flat
 
-        orig_metadata_json = read_json_as_dict(filepath=metadata_json_path)
+        orig_metadata_json = utils.read_json_as_dict(filepath=metadata_json_path)
         curr_emision_wave = int(waves[0])
         tile_config = orig_metadata_json.get("tile_config")
         metadata_json = {}
@@ -496,6 +467,9 @@ def run():
 
         else:
             logger.info("Ignoring microscope flats...")
+
+    else:
+        raise FileNotFoundError(f"Derivatives path not provided. Darkfield not loaded!")
 
     if flatfield is None or tile_config is None:
         logger.info("Estimating flats with BasicPy...")

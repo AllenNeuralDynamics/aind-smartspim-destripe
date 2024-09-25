@@ -1,5 +1,5 @@
 metadata_version: 1
-name: aind-destripe-shadow-correction
+name: aind-destripe-shadow-correction Zarr Optimization
 description: Image processing capsule to remove streaks from light-sheet images.
 tags:
 - SmartSPIM

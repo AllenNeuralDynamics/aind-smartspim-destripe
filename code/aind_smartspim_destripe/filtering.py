@@ -275,10 +275,7 @@ def invert_image(image: np.array) -> np.ndarray:
 
 
 def get_hemisphere_flatfield(
-    input_tile_path: str,
-    tile_config: dict,
-    flatfields: List[np.array],
-    zarr=True
+    input_tile_path: str, tile_config: dict, flatfields: List[np.array], zarr=True
 ) -> np.array:
     """
     Gets the hemisphere flatfield from the
@@ -310,16 +307,15 @@ def get_hemisphere_flatfield(
         Flatfield that will be used to correct
         the tiles from the corresponding hemisphere
     """
-    
     XY_location_folders = None
-    
+
     if zarr:
         XY_location_folders = str(input_tile_path).split("_")
-        
+
     else:
         splitted_input_tile_path = str(input_tile_path).split("/")
         XY_location_folders = splitted_input_tile_path[-2].split("_")
-    
+
     x_folder = XY_location_folders[0]
     y_folder = XY_location_folders[1]
 

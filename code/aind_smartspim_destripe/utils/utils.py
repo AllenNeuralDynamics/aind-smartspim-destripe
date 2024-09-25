@@ -2,6 +2,7 @@
 Utility functions
 """
 
+import json
 import logging
 import multiprocessing
 import os
@@ -401,3 +402,36 @@ def create_folder(dest_dir: str, verbose: Optional[bool] = False) -> None:
         except OSError as e:
             if e.errno != os.errno.EEXIST:
                 raise
+
+
+def read_json_as_dict(filepath: str) -> dict:
+    """
+    Reads a json as dictionary.
+    Parameters
+    ------------------------
+    filepath: PathLike
+        Path where the json is located.
+    Returns
+    ------------------------
+    dict:
+        Dictionary with the data the json has.
+    """
+
+    dictionary = {}
+
+    if os.path.exists(filepath):
+        try:
+            with open(filepath) as json_file:
+                dictionary = json.load(json_file)
+
+        except UnicodeDecodeError:
+            print("Error reading json with utf-8, trying different approach")
+            # This might lose data, verify with Jeff the json encoding
+            with open(filepath, "rb") as json_file:
+                data = json_file.read()
+                data_str = data.decode("utf-8", errors="ignore")
+                dictionary = json.loads(data_str)
+
+    #             print(f"Reading {filepath} forced: {dictionary}")
+
+    return dictionary
