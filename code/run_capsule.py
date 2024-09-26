@@ -388,6 +388,31 @@ def get_resolution(acquisition_config):
 
     return x, y, z
 
+def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
+    """
+    Validates input elemts for a capsule in
+    Code Ocean.
+
+    Parameters
+    -----------
+    input_elements: List[str]
+        Input elements for the capsule. This
+        could be sets of files or folders.
+
+    Returns
+    -----------
+    List[str]
+        List of missing files
+    """
+
+    missing_inputs = []
+    for required_input_element in input_elements:
+        required_input_element = Path(required_input_element)
+
+        if not required_input_element.exists():
+            missing_inputs.append(str(required_input_element))
+
+    return missing_inputs
 
 def run():
     """Validates parameters and runs the destriper"""
