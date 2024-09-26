@@ -402,21 +402,19 @@ def run():
         f"{data_folder}/acquisition.json",
     ]
 
-    #     missing_files = validate_capsule_inputs(required_input_elements)
+    missing_files = validate_capsule_inputs(required_input_elements)
 
-    #     print(f"Data in folder: {list(data_folder.glob('*'))}")
+    print(f"Data in folder: {list(data_folder.glob('*'))}")
 
-    #     if len(missing_files):
-    #         raise ValueError(
-    #             f"We miss the following files in the capsule input: {missing_files}"
-    #         )
+    if len(missing_files):
+        raise ValueError(
+            f"We miss the following files in the capsule input: {missing_files}"
+    )
 
     dask.config.set({"distributed.worker.memory.terminate": False})
 
-    BASE_PATH = data_folder.joinpath("SmartSPIM_717381_2024-07-03_10-49-01-zarr")
-    acquisition_path = data_folder.joinpath(
-        "SmartSPIM_717381_2024-07-03_10-49-01/acquisition.json"
-    )
+    BASE_PATH = data_folder#.joinpath("SmartSPIM_717381_2024-07-03_10-49-01-zarr")
+    acquisition_path = data_folder.joinpath("acquisition.json")
 
     acquisition_dict = utils.read_json_as_dict(acquisition_path)
 
@@ -427,9 +425,7 @@ def run():
 
     voxel_resolution = get_resolution(acquisition_dict)
 
-    derivatives_path = data_folder.joinpath(
-        "SmartSPIM_717381_2024-07-03_10-49-01/derivatives"
-    )
+    derivatives_path = data_folder.joinpath("derivatives")
 
     print(f"Derivatives path data: {list(derivatives_path.glob('*'))}")
 
@@ -453,7 +449,7 @@ def run():
             estimated_channel_flats = natsorted(
                 list(
                     data_folder.glob(
-                        f"717381_flats_test/estimated_flat_laser_{channel_name}*.tif"
+                        f"estimated_flat_laser_{channel_name}*.tif"
                     )
                 )
             )
