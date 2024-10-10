@@ -8,8 +8,8 @@ from time import time
 from typing import Callable, Dict, List, Optional, Tuple, Type, cast
 
 import dask
-
 import dask.array as da
+import filtering as fl
 import numpy as np
 import psutil
 import tifffile as tif
@@ -22,7 +22,7 @@ from aind_large_scale_prediction.generator.dataset import create_data_loader
 from aind_large_scale_prediction.generator.utils import (
     recover_global_position, unpad_global_coords)
 from aind_large_scale_prediction.io import ImageReaderFactory
-
+from blocked_zarr_writer import BlockedArrayWriter
 from dask.distributed import Client, LocalCluster, performance_report
 from natsort import natsorted
 from numcodecs import blosc
@@ -31,9 +31,6 @@ from ome_zarr.io import parse_url
 from ome_zarr.writer import write_multiscales_metadata
 from scipy.ndimage import binary_fill_holes, grey_dilation, map_coordinates
 from skimage.measure import regionprops
-
-import filtering as fl
-from blocked_zarr_writer import BlockedArrayWriter
 from utils import utils
 
 
@@ -1231,7 +1228,7 @@ def destripe_zarr(
 
     scale_factor = [2, 2, 2]
     multiscale_time_start = time()
-    
+
     compute_multiscale(
         output_zarr=output_zarr,
         zarr_group=new_channel_group,
@@ -1249,7 +1246,9 @@ def destripe_zarr(
     multiscale_time_end = time()
 
     logger.info(f"Processing destripe flatfield time: {end_time - start_time} seconds")
-    logger.info(f"Processing multiscale time: {multiscale_time_end - multiscale_time_start} seconds")
+    logger.info(
+        f"Processing multiscale time: {multiscale_time_end - multiscale_time_start} seconds"
+    )
 
     # Getting tracked resources and plotting image
     utils.stop_child_process(profile_process)
@@ -1301,7 +1300,9 @@ def destripe_channel(
 
     for tile_path in channel_dataset.glob("*.zarr"):
 
-        output_folder = destriped_data_folder.joinpath(f"{channel_name}/{tile_path.name}")
+        output_folder = destriped_data_folder.joinpath(
+            f"{channel_name}/{tile_path.name}"
+        )
         print(
             f"Processing {tile_path} - writing to: {output_folder} - derivatives: {derivatives_path}"
         )
@@ -1403,19 +1404,21 @@ def main():
         f"{data_folder}/acquisition.json",
     ]
 
-#     missing_files = validate_capsule_inputs(required_input_elements)
+    #     missing_files = validate_capsule_inputs(required_input_elements)
 
-#     print(f"Data in folder: {list(data_folder.glob('*'))}")
-    
-#     if len(missing_files):
-#         raise ValueError(
-#             f"We miss the following files in the capsule input: {missing_files}"
-#         )
-    
+    #     print(f"Data in folder: {list(data_folder.glob('*'))}")
+
+    #     if len(missing_files):
+    #         raise ValueError(
+    #             f"We miss the following files in the capsule input: {missing_files}"
+    #         )
+
     dask.config.set({"distributed.worker.memory.terminate": False})
 
     BASE_PATH = data_folder.joinpath("SmartSPIM_717381_2024-07-03_10-49-01-zarr")
-    acquisition_path = data_folder.joinpath("SmartSPIM_717381_2024-07-03_10-49-01/acquisition.json")
+    acquisition_path = data_folder.joinpath(
+        "SmartSPIM_717381_2024-07-03_10-49-01/acquisition.json"
+    )
 
     acquisition_dict = utils.read_json_as_dict(acquisition_path)
 
@@ -1426,7 +1429,9 @@ def main():
 
     voxel_resolution = get_resolution(acquisition_dict)
 
-    derivatives_path = data_folder.joinpath("SmartSPIM_717381_2024-07-03_10-49-01/derivatives")
+    derivatives_path = data_folder.joinpath(
+        "SmartSPIM_717381_2024-07-03_10-49-01/derivatives"
+    )
 
     print(f"Derivatives path data: {list(derivatives_path.glob('*'))}")
 
@@ -1448,7 +1453,11 @@ def main():
 
         for channel_name in channels:
             estimated_channel_flats = natsorted(
-                list(data_folder.glob(f"717381_flats_test/estimated_flat_laser_{channel_name}*.tif"))
+                list(
+                    data_folder.glob(
+                        f"717381_flats_test/estimated_flat_laser_{channel_name}*.tif"
+                    )
+                )
             )
 
             if not len(estimated_channel_flats):

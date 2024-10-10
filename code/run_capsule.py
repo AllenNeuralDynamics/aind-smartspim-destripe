@@ -1,8 +1,5 @@
 """ Runs the destriping algorithm """
 
-import json
-import logging
-import multiprocessing
 import os
 from datetime import datetime
 from glob import glob
@@ -15,11 +12,10 @@ import numpy as np
 import tifffile as tif
 from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
                                               Processing, ProcessName)
+from aind_smartspim_destripe import __version__, zarr_destriper
+from aind_smartspim_destripe.utils import utils
 from natsort import natsorted
 
-from aind_smartspim_destripe import __version__, zarr_destriper
-from aind_smartspim_destripe.filtering import invert_image, normalize_image
-from aind_smartspim_destripe.utils import utils
 
 def get_data_config(
     data_folder: str,
@@ -163,7 +159,7 @@ def generate_data_processing(
         ],
         processor_full_name="Camilo Laiton",
         pipeline_url="https://github.com/AllenNeuralDynamics/aind-smartspim-pipeline",
-        pipeline_version="1.6.0",
+        pipeline_version="3.0.0",
     )
 
     processing = Processing(
@@ -176,114 +172,6 @@ def generate_data_processing(
         f"{output_directory}/image_destriping_{channel_name}_processing.json", "w"
     ) as f:
         f.write(processing.model_dump_json(indent=3))
-
-
-def get_retrospective_flatfield_correction(
-    data_folder: str,
-    flats_dir: str,
-    no_cells_config: dict,
-    cells_config: dict,
-    shading_parameters: dict,
-    logger: logging.Logger,
-) -> Tuple[np.ndarray]:
-    """
-    Estimates the flatfields from 4 slides distributed
-    along the entire volume.
-
-    Parameters
-    ---------
-    data_folder: str
-        Folder where the channel data is located.
-
-    flats_dir: str
-        Path where the estimated flats will be written.
-
-    no_cells_config: dict
-        Dictionary with the configuration to filter the
-        tiles that have no cells in them.
-
-    cells_config: dict
-        Dictionary with the configuration to filter the
-        tiles that have cells in them.
-
-    shading_parameters: dict
-        Parameters to estimate the flatfields
-
-    logger: logging.Logger
-        Logging object
-
-    Returns
-    -------
-    Tuple[np.ndarray]
-        Tuple with the estimated flatfield,
-        darkfield and baselines to correct
-        the images
-    """
-    # Estimating flat field and dark field
-    folder_structure = utils.read_image_directory_structure(
-        data_folder, "Ex_(\d{3})_Em_(\d{3})$"
-    )
-
-    channel_path = list(folder_structure.keys())[0]
-    logger.info(f"Estimating flats from channel path: {channel_path}")
-
-    cols = list(folder_structure[channel_path].keys())
-    rows = [row for row in list(folder_structure[channel_path][cols[0]].keys())]
-    n_cols = len(cols)
-    n_rows = len(rows)
-    len_stack = len(folder_structure[channel_path][cols[0]][rows[0]])
-
-    slide_idxs = [
-        len_stack // 7,
-        int(len_stack // 6.5),
-        len_stack // 6,
-        int(len_stack // 5.5),
-        len_stack // 5,
-        int(len_stack // 4.5),
-        len_stack // 4,
-        int(len_stack // 3.5),
-        len_stack // 3,
-        int(len_stack // 2.5),
-        len_stack // 2,
-        int(len_stack // 1.5),
-    ]
-    logger.info(f"Using slides {slide_idxs} for flatfield and darkfield estimation")
-
-    # Estimating flatfields and darkfields per slide
-    shading_correction_per_slide = flat_est.slide_flat_estimation(
-        folder_structure,
-        channel_path,
-        slide_idxs,
-        shading_parameters,
-        no_cells_config,
-        cells_config,
-    )
-
-    flatfields = []
-    darkfields = []
-    baselines = []
-
-    # Unifying fields with median
-    for slide_idx, fields in shading_correction_per_slide.items():
-        flatfields.append(fields["flatfield"])
-        darkfields.append(fields["darkfield"])
-        baselines.append(fields["baseline"])
-
-        tif.imwrite(f"{flats_dir}/flatfield_{slide_idx}.tif", fields["flatfield"])
-        tif.imwrite(f"{flats_dir}/darkfield_{slide_idx}.tif", fields["darkfield"])
-        tif.imwrite(f"{flats_dir}/baseline_{slide_idx}.tif", fields["baseline"])
-
-    mode = "median"
-    logger.info(f"Unifying fields using {mode} mode.")
-    flatfield, darkfield, baseline = flat_est.unify_fields(
-        flatfields, darkfields, baselines, mode=mode
-    )
-
-    tif.imwrite(f"{flats_dir}/{mode}_flafield.tif", flatfield)
-    tif.imwrite(f"{flats_dir}/{mode}_darkfield.tif", darkfield)
-    tif.imwrite(f"{flats_dir}/{mode}_baseline.tif", baseline)
-
-    return flatfield, darkfield, baseline
 
 
 def get_microscope_flats(
@@ -388,6 +276,7 @@ def get_resolution(acquisition_config):
 
     return x, y, z
 
+
 def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
     """
     Validates input elemts for a capsule in
@@ -414,6 +303,7 @@ def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
 
     return missing_inputs
 
+
 def run():
     """Validates parameters and runs the destriper"""
 
@@ -434,11 +324,11 @@ def run():
     if len(missing_files):
         raise ValueError(
             f"We miss the following files in the capsule input: {missing_files}"
-    )
+        )
 
     dask.config.set({"distributed.worker.memory.terminate": False})
 
-    BASE_PATH = data_folder#.joinpath("SmartSPIM_717381_2024-07-03_10-49-01-zarr")
+    BASE_PATH = data_folder
     acquisition_path = data_folder.joinpath("acquisition.json")
 
     acquisition_dict = utils.read_json_as_dict(acquisition_path)
@@ -472,11 +362,7 @@ def run():
 
         for channel_name in channels:
             estimated_channel_flats = natsorted(
-                list(
-                    data_folder.glob(
-                        f"estimated_flat_laser_{channel_name}*.tif"
-                    )
-                )
+                list(data_folder.glob(f"estimated_flat_laser_{channel_name}*.tif"))
             )
 
             if not len(estimated_channel_flats):

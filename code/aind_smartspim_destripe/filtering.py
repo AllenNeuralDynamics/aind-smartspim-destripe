@@ -6,7 +6,6 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 import pywt
-from aind_large_scale_prediction._shared.types import PathLike
 from scipy import fftpack
 from skimage import filters
 

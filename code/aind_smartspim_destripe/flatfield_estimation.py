@@ -3,7 +3,6 @@ Estimates the flatfield, darkfield and baseline
 that will be used to correct image tiles.
 """
 
-from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
@@ -162,17 +161,17 @@ def slide_flat_estimation(
         and baselines for the slides.
     """
     dict_struct = dict_struct[channel_name]
-    channel_paths = list(dict_struct.keys())
+    # channel_paths = list(dict_struct.keys())
     cols = list(dict_struct.keys())
     rows = [row.split("_")[-1] for row in list(dict_struct[cols[0]].keys())]
     n_rows = len(rows)
     n_cols = len(cols)
     row_name = f"{cols[0]}_{rows[0]}"
 
-    imgs = []
+    # imgs = []
     shading_correction_per_slide = {}
     names = []
-    all_slides = []
+    # all_slides = []
     for slide_idx in slide_idxs:
         slide_name = dict_struct[cols[0]][row_name][slide_idx]
         slide_tiles = []
