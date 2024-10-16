@@ -1235,7 +1235,8 @@ def destripe_channel(
 
         flatfield_path = None
         for side, tiles in laser_tiles.items():
-            if tile_path.stem in tiles:
+            tile_path_stem = tile_path.stem.rsplit('.', 1)[0]
+            if tile_path_stem in tiles:
                 flatfield_path = estimated_channel_flats[int(side)]
                 break
 
