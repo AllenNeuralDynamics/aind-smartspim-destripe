@@ -56,9 +56,9 @@ def raw_imread(path):
 
     try:
         return np.memmap(path, dtype=dtype, mode="r", offset=8, shape=(width, height))
-    except:
+    except Exception as e:
         print("Bad path: %s" % path)
-        raise
+        raise e
 
 
 def imread(path: PathLike) -> np.array:

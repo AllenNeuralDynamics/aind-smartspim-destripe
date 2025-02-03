@@ -106,7 +106,8 @@ def unify_fields(
         baseline = np.max(baselines, axis=0)
 
     else:
-        raise NotImplementedError(f"Accepted values are: ['mean', 'median', 'mip']")
+        msg = "Accepted values are: ['mean', 'median', 'mip']"
+        raise NotImplementedError(msg)
 
     flatfield = flatfield.astype(
         np.float16
@@ -164,8 +165,6 @@ def slide_flat_estimation(
     # channel_paths = list(dict_struct.keys())
     cols = list(dict_struct.keys())
     rows = [row.split("_")[-1] for row in list(dict_struct[cols[0]].keys())]
-    n_rows = len(rows)
-    n_cols = len(cols)
     row_name = f"{cols[0]}_{rows[0]}"
 
     # imgs = []

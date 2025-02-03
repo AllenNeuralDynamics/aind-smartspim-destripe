@@ -182,9 +182,6 @@ def log_space_fft_filtering(
     if len(input_image.shape) == 3:
         width_fraction = sigma / min(input_image.shape[1:])
 
-    # print(f"Parameters: Wavelet {wavelet} coeffs: {coeffs} levels: {nb_levels}")
-    # print(f"max threshold value: {max_threshold} sigma {sigma} width fraction {width_fraction}")
-
     coeff_filtered = [approx]
     for i, (ch, cv, cd) in enumerate(detail):
         ch_sq = ch**2
@@ -274,7 +271,10 @@ def invert_image(image: np.array) -> np.ndarray:
 
 
 def get_hemisphere_flatfield(
-    input_tile_path: str, tile_config: dict, flatfields: List[np.array], zarr=True
+    input_tile_path: str,
+    tile_config: dict,
+    flatfields: List[np.array],
+    zarr: Optional[bool] = True,
 ) -> np.array:
     """
     Gets the hemisphere flatfield from the
@@ -377,14 +377,18 @@ def flatfield_correction(
     darkfield = darkfield[: image_tiles.shape[-2], : image_tiles.shape[-1]]
 
     if darkfield.shape != image_tiles.shape:
-        raise ValueError(
-            f"Please, check the shape of the darkfield. Image shape: {image_tiles.shape} - Darkfield shape: {darkfield.shape}"
+        msg = (
+            "Please, check the shape of the darkfield. "
+            f"Image: {image_tiles.shape} - Darkfield: {darkfield.shape}"
         )
+        raise ValueError(msg)
 
     if flatfield.shape != image_tiles.shape:
-        raise ValueError(
-            f"Please, check the shape of the flatfield. Image shape: {image_tiles.shape} - Flatfield shape: {flatfield.shape}"
+        msg = (
+            "Please, check the shape of the flatfield."
+            f"Image: {image_tiles.shape} - Flatfield: {flatfield.shape}"
         )
+        raise ValueError(msg)
 
     if baseline is None:
         baseline = np.zeros((image_tiles.shape[0],))
