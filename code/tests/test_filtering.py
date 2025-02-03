@@ -5,7 +5,6 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
-import pywt
 
 sys.path.append("../")
 from aind_smartspim_destripe import filtering
