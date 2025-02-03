@@ -15,8 +15,14 @@ from aind_smartspim_destripe.readers import _get_extension, imread, raw_imread
 
 
 class TestImageReader(unittest.TestCase):
+    """
+    Test image reader
+    """
 
     def test_get_extension(self):
+        """
+        Test get image extension
+        """
         self.assertEqual(_get_extension("image.tif"), ".tif")
         self.assertEqual(_get_extension("/path/to/image.png"), ".png")
         self.assertEqual(_get_extension("C:\\Images\\image.raw"), ".raw")
@@ -60,6 +66,9 @@ class TestImageReader(unittest.TestCase):
     @patch("tifffile.imread")
     @patch("imageio.imread")
     def test_imread(self, mock_iio_imread, mock_tifffile_imread, mock_raw_imread):
+        """
+        Testing image read
+        """
         mock_raw_imread.return_value = np.zeros((10, 10))
         mock_tifffile_imread.return_value = np.ones((10, 10))
         mock_iio_imread.return_value = np.full((10, 10), 255)
