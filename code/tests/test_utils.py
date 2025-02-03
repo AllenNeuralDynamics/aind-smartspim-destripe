@@ -79,16 +79,6 @@ class TestUtilities(unittest.TestCase):
         result = read_json_as_dict("fake_path.json")
         self.assertEqual(result, {"key": "value"})
 
-    @patch("psutil.cpu_percent", side_effect=[10, 20, 30])
-    @patch(
-        "psutil.virtual_memory",
-        side_effect=[
-            MagicMock(percent=50),
-            MagicMock(percent=60),
-            MagicMock(percent=70),
-        ],
-    )
-
     @classmethod
     def tearDownClass(cls) -> None:
         """Tear down class method to clean up"""
