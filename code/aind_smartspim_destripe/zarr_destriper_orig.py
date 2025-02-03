@@ -1,11 +1,14 @@
-import json
+"""
+Original zarr destriper
+"""
+
 import logging
 import multiprocessing
 import os
 from glob import glob
 from pathlib import Path
 from time import time
-from typing import Callable, Dict, List, Optional, Tuple, Type, cast
+from typing import Callable, Dict, List, Optional, Tuple, cast
 
 import dask
 import dask.array as da

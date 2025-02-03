@@ -1,4 +1,4 @@
-""" Runs the destriping algorithm """
+"""Runs the destriping algorithm"""
 
 import os
 from datetime import datetime
@@ -12,9 +12,10 @@ import numpy as np
 import tifffile as tif
 from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
                                               Processing, ProcessName)
+from natsort import natsorted
+
 from aind_smartspim_destripe import __version__, zarr_destriper
 from aind_smartspim_destripe.utils import utils
-from natsort import natsorted
 
 
 def get_data_config(
