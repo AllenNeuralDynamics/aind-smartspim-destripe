@@ -23,7 +23,7 @@ def _get_size(shape: Tuple[int, ...], itemsize: int) -> int:
     """
     if any(s <= 0 for s in shape):
         raise ValueError("shape must be > 0 in all dimensions")
-    return np.product(shape) * itemsize
+    return np.prod(shape) * itemsize
 
 
 def _closer_to_target(

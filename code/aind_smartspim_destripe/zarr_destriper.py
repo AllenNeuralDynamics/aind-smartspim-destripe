@@ -1,3 +1,7 @@
+"""
+Zarr destriper
+"""
+
 import json
 import logging
 import multiprocessing
@@ -7,7 +11,6 @@ from pathlib import Path
 from time import time
 from typing import Callable, Dict, List, Optional, Tuple, cast
 
-import dask
 import dask.array as da
 import numpy as np
 import psutil
@@ -1235,7 +1238,7 @@ def destripe_channel(
 
         flatfield_path = None
         for side, tiles in laser_tiles.items():
-            tile_path_stem = tile_path.stem.rsplit('.', 1)[0]
+            tile_path_stem = tile_path.stem.rsplit(".", 1)[0]
             if tile_path_stem in tiles:
                 flatfield_path = estimated_channel_flats[int(side)]
                 break
