@@ -211,24 +211,18 @@ class SmartspimFiltering(unittest.TestCase):
         """
         tile_config = {"X1": {"Y1": 0, "Y2": 1}, "X2": {"Y1": 0, "Y2": 1}}
         flatfields = [np.array([[1, 1], [1, 1]]), np.array([[2, 2], [2, 2]])]
-        flatfield = filtering.get_hemisphere_flatfield(
-            "path/to/X1_Y1/test.zarr", tile_config, flatfields
-        )
+        flatfield = filtering.get_hemisphere_flatfield("X1_Y1", tile_config, flatfields)
         np.testing.assert_array_equal(
             flatfield, flatfields[0], "Incorrect flatfield returned"
         )
 
-        flatfield = filtering.get_hemisphere_flatfield(
-            "path/to/X2_Y2/test.zarr", tile_config, flatfields
-        )
+        flatfield = filtering.get_hemisphere_flatfield("X2_Y2", tile_config, flatfields)
         np.testing.assert_array_equal(
             flatfield, flatfields[1], "Incorrect flatfield returned"
         )
 
         with self.assertRaises(KeyError):
-            filtering.get_hemisphere_flatfield(
-                "path/to/X3_Y1/test.zarr", tile_config, flatfields
-            )
+            filtering.get_hemisphere_flatfield("X3_Y1", tile_config, flatfields)
 
     def test_flatfield_correction(self):
         """
@@ -246,10 +240,8 @@ class SmartspimFiltering(unittest.TestCase):
         with self.assertRaises(ValueError):
             filtering.flatfield_correction(image_tiles, flatfield, darkfield[:-1])
 
-    @patch("aind_smartspim_flatfield_estimation.filtering.log_space_fft_filtering")
-    @patch(
-        "aind_smartspim_flatfield_estimation.filtering.get_foreground_background_mean"
-    )
+    @patch("aind_smartspim_destripe.filtering.log_space_fft_filtering")
+    @patch("aind_smartspim_destripe.filtering.get_foreground_background_mean")
     def test_filter_stripes(
         self, mock_get_foreground_background_mean, mock_log_space_fft_filtering
     ):
