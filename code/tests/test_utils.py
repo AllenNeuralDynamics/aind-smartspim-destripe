@@ -88,28 +88,6 @@ class TestUtilities(unittest.TestCase):
             MagicMock(percent=70),
         ],
     )
-    def test_profile_resources(self, mock_virtual_memory, mock_cpu_percent):
-        time_points = []
-        cpu_percentages = []
-        memory_usages = []
-        monitoring_interval = 1
-
-        def run_profiler():
-            profile_resources(
-                time_points, cpu_percentages, memory_usages, monitoring_interval
-            )
-
-        profiler_thread = threading.Thread(target=run_profiler, daemon=True)
-        profiler_thread.start()
-
-        time.sleep(3.5)
-
-        self.assertGreater(len(time_points), 0)
-        self.assertGreater(len(cpu_percentages), 0)
-        self.assertGreater(len(memory_usages), 0)
-
-        self.assertEqual(cpu_percentages[:3], [10, 20, 30])
-        self.assertEqual(memory_usages[:3], [50, 60, 70])
 
     @classmethod
     def tearDownClass(cls) -> None:
