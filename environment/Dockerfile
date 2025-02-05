@@ -15,7 +15,7 @@ RUN pip install -U --no-cache-dir \
     aind-large-scale-prediction==1.0.0 \
     numpy==1.26.4 \
     scipy==1.13.1 \
-    scikit-image==1.4.2 \
+    scikit-image==0.24.0 \
     tifffile==2024.5.10 \
     PyWavelets==1.6.0 \
     tqdm==4.66.5 \
