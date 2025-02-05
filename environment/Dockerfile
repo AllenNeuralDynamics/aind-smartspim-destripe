@@ -13,17 +13,17 @@ SHELL ["conda", "run", "-n", "destriper", "/bin/bash", "-c"]
 
 RUN pip install -U --no-cache-dir \
     aind-large-scale-prediction==1.0.0 \
-    numpy \
-    scipy \
-    scikit-image \
-    tifffile \
-    PyWavelets \
-    tqdm \
+    numpy==1.26.4 \
+    scipy==1.13.1 \
+    scikit-image==1.4.2 \
+    tifffile==2024.5.10 \
+    PyWavelets==1.6.0 \
+    tqdm==4.66.5 \
     pathlib2 \
     aind-data-schema==1.0.0 \
-    matplotlib \
-    psutil \
+    matplotlib==3.9.2 \
+    psutil==6.0.0 \
     BaSiCPy==1.1.0 \
-    natsort \
-    git+https://github.com/imageio/imageio.git \
+    natsort==8.4.0 \
+    imageio==2.35.1 \
     xarray_multiscale==2.1.0
