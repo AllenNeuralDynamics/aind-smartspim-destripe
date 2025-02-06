@@ -1,12 +1,14 @@
 FROM continuumio/miniconda3:23.9.0-0
+LABEL maintainer="Camilo Laiton <camilo.laiton@alleninstitute.org>"
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update
-RUN conda create -n destriper python=3.9 -y && conda clean -afy
-SHELL ["conda", "run", "-n", "destriper", "/bin/bash", "-c"]
+RUN conda create -n destriper python=3.9 -y && \
+    conda clean -afy
 
-RUN pip install -U --no-cache-dir \
+SHELL ["/bin/bash", "-c"]
+
+RUN conda run -n destriper pip install --no-cache-dir \
     aind-large-scale-prediction==1.0.0 \
     numpy==1.26.4 \
     scipy==1.13.1 \
