@@ -1,26 +1,42 @@
 FROM continuumio/miniconda3:23.9.0-0
-LABEL maintainer="Camilo Laiton <camilo.laiton@alleninstitute.org>"
+
+# --------------------- #
+#      METADATA         #
+# --------------------- #
+LABEL maintainer="Camilo Laiton <camilo.laiton@alleninstitute.org>" \
+      org.opencontainers.image.title="Image Preprocessing" \
+      org.opencontainers.image.description="Container for flatfield and stripe correction." \
+      org.opencontainers.image.version="0.0.4" \
+      org.opencontainers.image.licenses="MIT"
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-RUN conda create -n destriper python=3.9 -y && \
+# --------------------- #
+# SYSTEM DEPENDENCIES   #
+# --------------------- #
+RUN apt-get update && \
+    apt-get install -y gcc && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# --------------------- #
+#    CONDA ENV SETUP    #
+# --------------------- #
+RUN conda create -y -n destriper python=3.9 && \
+    conda run -n destriper pip install --no-cache-dir \
+        aind-large-scale-prediction==1.0.0 \
+        numpy==1.26.4 \
+        scipy==1.13.1 \
+        scikit-image==0.24.0 \
+        tifffile==2024.5.10 \
+        PyWavelets==1.6.0 \
+        tqdm==4.66.5 \
+        pathlib2 \
+        aind-data-schema==1.0.0 \
+        matplotlib==3.9.2 \
+        psutil==6.0.0 \
+        BaSiCPy==1.1.0 \
+        natsort==8.4.0 \
+        imageio==2.35.1 \
+        xarray_multiscale==2.1.0 && \
     conda clean -afy
-
-SHELL ["/bin/bash", "-c"]
-
-RUN conda run -n destriper pip install --no-cache-dir \
-    aind-large-scale-prediction==1.0.0 \
-    numpy==1.26.4 \
-    scipy==1.13.1 \
-    scikit-image==0.24.0 \
-    tifffile==2024.5.10 \
-    PyWavelets==1.6.0 \
-    tqdm==4.66.5 \
-    pathlib2 \
-    aind-data-schema==1.0.0 \
-    matplotlib==3.9.2 \
-    psutil==6.0.0 \
-    BaSiCPy==1.1.0 \
-    natsort==8.4.0 \
-    imageio==2.35.1 \
-    xarray_multiscale==2.1.0
