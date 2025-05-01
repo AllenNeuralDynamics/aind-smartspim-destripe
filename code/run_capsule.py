@@ -421,7 +421,7 @@ def run():
                 dest_data_description=scratch_folder,
                 process_name="stitched",
             )
-            s3_path = f"s3://{bucket_path}/{new_dataset_name}"
+            s3_path = f"s3://{bucket_path}/zup_smartspim_destriping/{new_dataset_name}"
             dest_destriped_data = f"{s3_path}/image_destriping"
 
             source_folder = results_folder.joinpath("destriped_data")
