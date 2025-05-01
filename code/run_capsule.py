@@ -335,12 +335,23 @@ def run():
     data_description_path = data_folder.joinpath("data_description.json")
 
     acquisition_dict = utils.read_json_as_dict(acquisition_path)
+    description_dict = utils.read_json_as_dict(data_description_path)
 
     if not len(acquisition_dict):
         raise ValueError(
             f"Not able to read acquisition metadata from {acquisition_path}"
         )
 
+    if not len(description_dict):
+        raise ValueError(
+            f"Not able to read acquisition metadata from {acquisition_path}"
+        )
+
+    dataset_name = description_dict.get('input_data_name')
+
+    if dataset_name is None:
+        raise ValueError(f"Please, provide a valid dataset name: {description_dict}")
+    
     voxel_resolution = get_resolution(acquisition_dict)
 
     derivatives_path = data_folder.joinpath("derivatives")
@@ -416,12 +427,15 @@ def run():
                 end_time=destriping_end_time,
                 output_directory=results_folder,
             )
+            """
             new_dataset_name = utils.generate_data_description(
                 raw_data_description_path=data_description_path,
                 dest_data_description=scratch_folder,
                 process_name="stitched",
             )
-            s3_path = f"s3://{bucket_path}/zup_smartspim_destriping/{new_dataset_name}"
+            """
+            
+            s3_path = f"s3://{bucket_path}/zup_smartspim_destriping/{dataset_name}_destriped"
             dest_destriped_data = f"{s3_path}/image_destriping"
 
             source_folder = results_folder.joinpath("destriped_data")
