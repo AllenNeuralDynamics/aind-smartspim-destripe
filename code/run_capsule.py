@@ -311,7 +311,7 @@ def run():
     data_folder = Path(os.path.abspath("../data"))
     results_folder = Path(os.path.abspath("../results"))
     scratch_folder = Path(os.path.abspath("../scratch"))
-    bucket_path = 'aind-open-data'
+    bucket_path = "aind-open-data"
     # It is assumed that these files
     # will be in the data folder
     required_input_elements = [
@@ -353,6 +353,7 @@ def run():
         if os.path.isdir(folder)
     ]
     laser_tiles_path = data_folder.joinpath("laser_tiles.json")
+    # Path('/data/laser_tiles.json')#
 
     if not laser_tiles_path.exists():
         raise FileNotFoundError(f"Path {laser_tiles_path} does not exist!")
@@ -365,6 +366,7 @@ def run():
 
         for channel_name in channels:
             estimated_channel_flats = natsorted(
+                #                 Path('/data').glob(f"estimated_flat_laser_{channel_name}*.tif")
                 list(data_folder.glob(f"estimated_flat_laser_{channel_name}*.tif"))
             )
 
@@ -417,12 +419,12 @@ def run():
             new_dataset_name = utils.generate_data_description(
                 raw_data_description_path=data_description_path,
                 dest_data_description=scratch_folder,
-                process_name = "stitched",
+                process_name="stitched",
             )
             s3_path = f"s3://{bucket_path}/{new_dataset_name}"
             dest_destriped_data = f"{s3_path}/image_destriping"
 
-            source_folder = results_folder.joinpath('destriped_data')
+            source_folder = results_folder.joinpath("destriped_data")
             cmd = f"aws s3 cp --recursive {source_folder} {dest_destriped_data}"
 
             print(f"Executing copy: {cmd}")
@@ -432,7 +434,9 @@ def run():
 
             utils.save_string_to_txt(
                 txt=new_dataset_name,
-                filepath=str(results_folder.joinpath('path_to_cloud.txt'))
+                filepath=str(
+                    results_folder.joinpath(f"path_to_cloud_{channel_name}.txt")
+                ),
             )
 
     else:

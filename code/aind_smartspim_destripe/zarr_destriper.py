@@ -1100,6 +1100,9 @@ def destripe_zarr(
 
         # Reading darkfield
         darkfield_path = str(derivatives_path.joinpath("DarkMaster_cropped.tif"))
+        if not os.path.exists(darkfield_path):
+            raise FileNotFoundError(f"Darkfield path not found!")
+
         logger.info(f"Loading darkfield from path: {darkfield_path}")
 
         try:
@@ -1265,6 +1268,8 @@ def destripe_channel(
             flatfield=flatfield,
             lazy_callback_fn=None,
         )
+        print("BREAKING")
+        break
 
 
 def validate_capsule_inputs(input_elements: List[str]) -> List[str]:

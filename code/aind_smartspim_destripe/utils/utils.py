@@ -8,6 +8,7 @@ import multiprocessing
 import os
 import platform
 import re
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -15,15 +16,15 @@ from typing import List, Optional
 
 import matplotlib.pyplot as plt
 import psutil
-from natsort import natsorted
-import subprocess
 from aind_data_schema.core.data_description import (DerivedDataDescription,
                                                     Funding)
 from aind_data_schema_models.modalities import Modality
 from aind_data_schema_models.organizations import Organization
 from aind_data_schema_models.pid_names import PIDName
 from aind_data_schema_models.platforms import Platform
+from natsort import natsorted
 from pydantic import TypeAdapter
+
 
 def profile_resources(
     time_points: List,
@@ -450,6 +451,7 @@ def read_json_as_dict(filepath: str) -> dict:
 
     return dictionary
 
+
 def execute_command_helper(
     command: str,
     print_command: bool = False,
@@ -485,6 +487,7 @@ def execute_command_helper(
     return_code = popen.wait()
     if return_code:
         raise subprocess.CalledProcessError(return_code, command)
+
 
 def generate_data_description(
     raw_data_description_path,
@@ -564,6 +567,7 @@ def generate_data_description(
         f.write(derived.model_dump_json())
 
     return derived.name
+
 
 def save_string_to_txt(txt: str, filepath: str, mode="w") -> None:
     """
