@@ -433,7 +433,7 @@ def run():
                 print(out)
 
             utils.save_string_to_txt(
-                txt=new_dataset_name,
+                txt=dest_destriped_data,
                 filepath=str(
                     results_folder.joinpath(f"path_to_cloud_{channel_name}.txt")
                 ),
