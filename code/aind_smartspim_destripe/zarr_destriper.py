@@ -1268,8 +1268,6 @@ def destripe_channel(
             flatfield=flatfield,
             lazy_callback_fn=None,
         )
-        print("BREAKING")
-        break
 
 
 def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
