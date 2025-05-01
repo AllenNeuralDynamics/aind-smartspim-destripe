@@ -26,4 +26,5 @@ RUN pip install -U --no-cache-dir \
     BaSiCPy==1.1.0 \
     natsort==8.4.0 \
     imageio==2.35.1 \
-    xarray_multiscale==2.1.0
+    xarray_multiscale==2.1.0 \
+    awscli

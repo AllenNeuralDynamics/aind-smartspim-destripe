@@ -16,7 +16,14 @@ from typing import List, Optional
 import matplotlib.pyplot as plt
 import psutil
 from natsort import natsorted
-
+import subprocess
+from aind_data_schema.core.data_description import (DerivedDataDescription,
+                                                    Funding)
+from aind_data_schema_models.modalities import Modality
+from aind_data_schema_models.organizations import Organization
+from aind_data_schema_models.pid_names import PIDName
+from aind_data_schema_models.platforms import Platform
+from pydantic import TypeAdapter
 
 def profile_resources(
     time_points: List,
@@ -442,3 +449,139 @@ def read_json_as_dict(filepath: str) -> dict:
     #             print(f"Reading {filepath} forced: {dictionary}")
 
     return dictionary
+
+def execute_command_helper(
+    command: str,
+    print_command: bool = False,
+):
+    """
+    Execute a shell command.
+
+    Parameters
+    ------------------------
+
+    command: str
+        Command that we want to execute.
+    print_command: bool
+        Bool that dictates if we print the command in the console.
+
+    Raises
+    ------------------------
+
+    CalledProcessError:
+        if the command could not be executed (Returned non-zero status).
+
+    """
+
+    if print_command:
+        print(command)
+
+    popen = subprocess.Popen(
+        command, stdout=subprocess.PIPE, universal_newlines=True, shell=True
+    )
+    for stdout_line in iter(popen.stdout.readline, ""):
+        yield str(stdout_line).strip()
+    popen.stdout.close()
+    return_code = popen.wait()
+    if return_code:
+        raise subprocess.CalledProcessError(return_code, command)
+
+def generate_data_description(
+    raw_data_description_path,
+    dest_data_description,
+    process_name: Optional[str] = "stitched",
+):
+    """
+    Generates data description for the output folder.
+
+    Parameters
+    -------------
+
+    raw_data_description_path: PathLike
+        Path where the data description file is located.
+
+    dest_data_description: PathLike
+        Path where the new data description will be placed.
+
+    process_name: str
+        Process name of the new dataset
+
+
+    Returns
+    -------------
+    str
+        New folder name for the fused
+        data
+    """
+
+    f = open(raw_data_description_path, "r")
+    data = json.load(f)
+
+    if isinstance(data["institution"], dict) and "abbreviation" in data["institution"]:
+        institution = data["institution"]["abbreviation"]
+
+    investigators = data.get("investigators", [])
+
+    if len(investigators) and len(investigators[0]):
+        investigators = [PIDName.parse_obj(inv) for inv in investigators]
+
+    else:
+        investigators = [PIDName(name="Unknown")]
+
+    # from_data_description
+    funding_adapter = TypeAdapter(Funding)
+    try:
+        funding_sources = [
+            funding_adapter.validate_python(fund) for fund in data["funding_source"]
+        ]
+    except Exception as e:
+        print(f"Error getting the funding source into the schema!")
+        funding_sources = []
+
+    # Setting Allen Institute as default since derived data description
+    # does not allow empty funding source
+    if not len(funding_sources):
+        funding_sources = [Funding(funder=Organization.AI)]
+
+    # Ensuring backwards compatibility
+    derived = DerivedDataDescription(
+        creation_time=datetime.now(),
+        input_data_name=data["name"],
+        process_name=process_name,
+        institution=Organization.from_abbreviation(institution),
+        funding_source=funding_sources,
+        group=data["group"],
+        investigators=investigators,
+        platform=Platform.SMARTSPIM,
+        project_name=data["project_name"],
+        restrictions=data["restrictions"],
+        modality=[Modality.SPIM],
+        subject_id=data["subject_id"],
+    )
+
+    # derived.write_standard_file(output_directory=dest_data_description)
+    with open(f"{dest_data_description}/data_description.json", "w") as f:
+        f.write(derived.model_dump_json())
+
+    return derived.name
+
+def save_string_to_txt(txt: str, filepath: str, mode="w") -> None:
+    """
+    Saves a text in a file in the given mode.
+
+    Parameters
+    ------------------------
+
+    txt: str
+        String to be saved.
+
+    filepath: PathLike
+        Path where the file is located or will be saved.
+
+    mode: str
+        File open mode.
+
+    """
+
+    with open(filepath, mode) as file:
+        file.write(txt + "\n")

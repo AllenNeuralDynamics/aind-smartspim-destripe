@@ -311,11 +311,12 @@ def run():
     data_folder = Path(os.path.abspath("../data"))
     results_folder = Path(os.path.abspath("../results"))
     scratch_folder = Path(os.path.abspath("../scratch"))
-
+    bucket_path = 'aind-open-data'
     # It is assumed that these files
     # will be in the data folder
     required_input_elements = [
         f"{data_folder}/acquisition.json",
+        f"{data_folder}/data_description.json",
     ]
 
     missing_files = validate_capsule_inputs(required_input_elements)
@@ -331,6 +332,7 @@ def run():
 
     BASE_PATH = data_folder
     acquisition_path = data_folder.joinpath("acquisition.json")
+    data_description_path = data_folder.joinpath("data_description.json")
 
     acquisition_dict = utils.read_json_as_dict(acquisition_path)
 
@@ -411,6 +413,26 @@ def run():
                 start_time=destriping_start_time,
                 end_time=destriping_end_time,
                 output_directory=results_folder,
+            )
+            new_dataset_name = utils.generate_data_description(
+                raw_data_description_path=data_description_path,
+                dest_data_description=scratch_folder,
+                process_name = "stitched",
+            )
+            s3_path = f"s3://{bucket_path}/{new_dataset_name}"
+            dest_destriped_data = f"{s3_path}/image_destriping"
+
+            source_folder = results_folder.joinpath('destriped_data')
+            cmd = f"aws s3 cp --recursive {source_folder} {dest_destriped_data}"
+
+            print(f"Executing copy: {cmd}")
+
+            for out in utils.execute_command_helper(cmd):
+                print(out)
+
+            utils.save_string_to_txt(
+                txt=new_dataset_name,
+                filepath=str(results_folder.joinpath('path_to_cloud.txt'))
             )
 
     else:
