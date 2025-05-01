@@ -28,3 +28,5 @@ RUN pip install -U --no-cache-dir \
     imageio==2.35.1 \
     xarray_multiscale==2.1.0 \
     awscli
+
+RUN conda config --add channels conda-forge && conda config --set channel_priority strict && conda install s5cmd

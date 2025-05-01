@@ -346,8 +346,8 @@ def run():
         raise ValueError(
             f"Not able to read acquisition metadata from {acquisition_path}"
         )
-
-    dataset_name = description_dict.get('input_data_name')
+    
+    dataset_name = description_dict.get('input_data_name') or description_dict.get('name')
 
     if dataset_name is None:
         raise ValueError(f"Please, provide a valid dataset name: {description_dict}")
@@ -438,8 +438,9 @@ def run():
             s3_path = f"s3://{bucket_path}/smartspim_destriping/{dataset_name}_destriped"
             dest_destriped_data = f"{s3_path}/image_destriping"
 
-            source_folder = results_folder.joinpath("destriped_data")
-            cmd = f"aws s3 cp --recursive {source_folder} {dest_destriped_data}"
+            source_folder = results_folder.joinpath(f"destriped_data/{channel_name}")
+            # cmd = f"aws s3 cp --recursive {source_folder} {dest_destriped_data}"
+            cmd = f"s5cmd cp -n -s -u {source_folder} {dest_destriped_data}/"
 
             print(f"Executing copy: {cmd}")
 
