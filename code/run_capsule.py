@@ -435,7 +435,7 @@ def run():
             )
             """
             
-            s3_path = f"s3://{bucket_path}/zup_smartspim_destriping/{dataset_name}_destriped"
+            s3_path = f"s3://{bucket_path}/smartspim_destriping/{dataset_name}_destriped"
             dest_destriped_data = f"{s3_path}/image_destriping"
 
             source_folder = results_folder.joinpath("destriped_data")
