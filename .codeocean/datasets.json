@@ -1,0 +1,9 @@
+{
+	"version": 1,
+	"attached_datasets": [
+		{
+			"id": "d6b18f2d-fde4-4e19-bdcf-d3b928f6d2d1",
+			"mount": "SmartSPIM_750106_2024-11-04_10-43-45"
+		}
+	]
+}
