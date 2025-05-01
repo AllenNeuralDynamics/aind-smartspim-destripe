@@ -311,7 +311,7 @@ def run():
     data_folder = Path(os.path.abspath("../data"))
     results_folder = Path(os.path.abspath("../results"))
     scratch_folder = Path(os.path.abspath("../scratch"))
-    bucket_path = "aind-open-data"
+    bucket_path = "aind-scratch-data"
     # It is assumed that these files
     # will be in the data folder
     required_input_elements = [
