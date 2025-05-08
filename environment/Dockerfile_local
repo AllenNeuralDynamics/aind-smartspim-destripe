@@ -29,9 +29,6 @@ RUN conda create -y -n destriper python=3.9 && \
         xarray_multiscale==2.1.0 && \
     conda clean -afy
 
-# Export conda environment to minimize the final image
-RUN conda run -n destriper conda list --explicit > /requirements.txt
-
 # ========================= #
 #      RUNTIME STAGE       #
 # ========================= #
@@ -59,13 +56,6 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy requirements file from builder stage
-COPY --from=builder /requirements.txt /requirements.txt
+COPY --from=builder /opt/conda/envs/destriper /opt/conda/envs/destriper
 
-# Create conda environment from requirements
-RUN conda create -n destriper --file /requirements.txt && \
-    rm /requirements.txt && \
-    conda clean -afy
-
-SHELL ["/bin/bash", "-c"]
 ENV PATH /opt/conda/envs/destriper/bin:$PATH
-ENV CONDA_DEFAULT_ENV destriper
