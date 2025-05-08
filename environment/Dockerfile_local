@@ -1,27 +1,15 @@
-FROM continuumio/miniconda3:23.9.0-0
+# ========================= #
+#      BUILDER STAGE      #
+# ========================= #
+FROM continuumio/miniconda3:23.9.0-0 AS builder
 
-# --------------------- #
-#      METADATA         #
-# --------------------- #
-LABEL maintainer="Camilo Laiton <camilo.laiton@alleninstitute.org>" \
-      org.opencontainers.image.title="Image Preprocessing" \
-      org.opencontainers.image.description="Container for flatfield and stripe correction." \
-      org.opencontainers.image.version="0.0.4" \
-      org.opencontainers.image.licenses="MIT"
-
-ARG DEBIAN_FRONTEND=noninteractive
-
-# --------------------- #
-# SYSTEM DEPENDENCIES   #
-# --------------------- #
+# System dependencies for building
 RUN apt-get update && \
-    apt-get install -y gcc && \
+    apt-get install -y --no-install-recommends gcc && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# --------------------- #
-#    CONDA ENV SETUP    #
-# --------------------- #
+# Create conda environment and install dependencies
 RUN conda create -y -n destriper python=3.9 && \
     conda run -n destriper pip install --no-cache-dir \
         aind-large-scale-prediction==1.0.0 \
@@ -40,3 +28,44 @@ RUN conda create -y -n destriper python=3.9 && \
         imageio==2.35.1 \
         xarray_multiscale==2.1.0 && \
     conda clean -afy
+
+# Export conda environment to minimize the final image
+RUN conda run -n destriper conda list --explicit > /requirements.txt
+
+# ========================= #
+#      RUNTIME STAGE       #
+# ========================= #
+FROM continuumio/miniconda3:23.9.0-0
+
+# --------------------- #
+#      METADATA         #
+# --------------------- #
+LABEL maintainer="Camilo Laiton <camilo.laiton@alleninstitute.org>" \
+    org.opencontainers.image.title="Image Preprocessing" \
+    org.opencontainers.image.description="Container for flatfield and stripe correction." \
+    org.opencontainers.image.version="0.0.4" \
+    org.opencontainers.image.licenses="MIT"
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# --------------------- #
+# SYSTEM DEPENDENCIES   #
+# --------------------- #
+# Install only runtime dependencies if needed
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy requirements file from builder stage
+COPY --from=builder /requirements.txt /requirements.txt
+
+# Create conda environment from requirements
+RUN conda create -n destriper --file /requirements.txt && \
+    rm /requirements.txt && \
+    conda clean -afy
+
+SHELL ["/bin/bash", "-c"]
+ENV PATH /opt/conda/envs/destriper/bin:$PATH
+ENV CONDA_DEFAULT_ENV destriper
