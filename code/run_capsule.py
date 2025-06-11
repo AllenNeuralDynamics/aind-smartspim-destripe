@@ -308,7 +308,7 @@ def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
 def run():
     """Validates parameters and runs the destriper"""
 
-    data_folder = Path(os.path.abspath("../data"))
+    data_folder = Path(os.path.abspath("../data/SmartSPIM_750106_2024-11-04_10-43-45"))
     results_folder = Path(os.path.abspath("../results"))
     scratch_folder = Path(os.path.abspath("../scratch"))
     bucket_path = "aind-scratch-data"
@@ -319,18 +319,25 @@ def run():
         f"{data_folder}/data_description.json",
     ]
 
-    missing_files = validate_capsule_inputs(required_input_elements)
+#     missing_files = validate_capsule_inputs(required_input_elements)
 
-    print(f"Data in folder: {list(data_folder.glob('*'))}")
+#     print(f"Data in folder: {list(data_folder.glob('*'))}")
 
-    if len(missing_files):
-        raise ValueError(
-            f"We miss the following files in the capsule input: {missing_files}"
-        )
+#     if len(missing_files):
+#         raise ValueError(
+#             f"We miss the following files in the capsule input: {missing_files}"
+#         )
 
-    dask.config.set({"distributed.worker.memory.terminate": False})
+    dask.config.set(
+        {
+            "distributed.worker.memory.target": 0.8,
+            "distributed.worker.memory.spill": 0.9,
+            "distributed.worker.memory.pause": 0.95,
+            "distributed.worker.memory.terminate": 0.98,
+        }
+    )
 
-    BASE_PATH = data_folder
+    BASE_PATH = data_folder.joinpath("SPIM") ##
     acquisition_path = data_folder.joinpath("acquisition.json")
     data_description_path = data_folder.joinpath("data_description.json")
 
@@ -354,7 +361,7 @@ def run():
     
     voxel_resolution = get_resolution(acquisition_dict)
 
-    derivatives_path = data_folder.joinpath("derivatives")
+    derivatives_path = data_folder.joinpath("SPIM/derivatives")
 
     print(f"Derivatives path data: {list(derivatives_path.glob('*'))}")
 
@@ -363,7 +370,7 @@ def run():
         for folder in list(BASE_PATH.glob("Ex_*_Em_*"))
         if os.path.isdir(folder)
     ]
-    laser_tiles_path = data_folder.joinpath("laser_tiles.json")
+    laser_tiles_path = data_folder.joinpath("../laser_tiles.json")
     # Path('/data/laser_tiles.json')#
 
     if not laser_tiles_path.exists():
@@ -378,7 +385,7 @@ def run():
         for channel_name in channels:
             estimated_channel_flats = natsorted(
                 #                 Path('/data').glob(f"estimated_flat_laser_{channel_name}*.tif")
-                list(data_folder.glob(f"estimated_flat_laser_{channel_name}*.tif"))
+                list(data_folder.glob(f"../estimated_flat_laser_{channel_name}*.tif"))
             )
 
             if not len(estimated_channel_flats):

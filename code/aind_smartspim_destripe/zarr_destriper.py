@@ -28,6 +28,7 @@ from numcodecs import blosc
 from ome_zarr.format import CurrentFormat
 from ome_zarr.io import parse_url
 from ome_zarr.writer import write_multiscales_metadata
+import gc
 
 from . import filtering as fl
 from .blocked_zarr_writer import BlockedArrayWriter
@@ -673,7 +674,6 @@ def write_ome_ngff_metadata(
     # Writing the multiscale metadata
     write_multiscales_metadata(group, datasets, fmt, axes_5d, **metadata)
 
-
 def compute_multiscale(
     output_zarr,
     zarr_group,
@@ -694,6 +694,7 @@ def compute_multiscale(
     )
 
     client = Client(cluster)
+    client.run(gc.collect)
     #     performance_report_path = f"/results/report.html"
 
     start_time = time()

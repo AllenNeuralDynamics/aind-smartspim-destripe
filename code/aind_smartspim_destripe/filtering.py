@@ -75,6 +75,7 @@ def get_foreground_background_mean(
         Foreground mean, background mean and
         image mask looking for cells
     """
+    img = np.clip(img, 0, 65504)
     cell_for = foreground_fraction(img.astype(np.float16), 400, 20)
     cell_for[cell_for > threshold_mask] = 1
     cell_for[cell_for <= threshold_mask] = 0
