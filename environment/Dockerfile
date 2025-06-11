@@ -11,6 +11,8 @@ RUN conda create -n destriper python=3.9 -y
 SHELL ["conda", "run", "-n", "destriper", "/bin/bash", "-c"]
 # RUN conda install -c conda-forge awscli
 
+ENV MALLOC_TRIM_THRESHOLD_=0
+
 RUN pip install -U --no-cache-dir \
     aind-large-scale-prediction==1.0.0 \
     numpy==1.26.4 \
