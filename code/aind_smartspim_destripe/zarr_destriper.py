@@ -2,6 +2,7 @@
 Zarr destriper
 """
 
+import gc
 import json
 import logging
 import multiprocessing
@@ -28,7 +29,6 @@ from numcodecs import blosc
 from ome_zarr.format import CurrentFormat
 from ome_zarr.io import parse_url
 from ome_zarr.writer import write_multiscales_metadata
-import gc
 
 from . import filtering as fl
 from .blocked_zarr_writer import BlockedArrayWriter
@@ -674,6 +674,28 @@ def write_ome_ngff_metadata(
     # Writing the multiscale metadata
     write_multiscales_metadata(group, datasets, fmt, axes_5d, **metadata)
 
+
+def get_available_memory():
+    """
+    Returns the available memory in GBs.
+
+    Returns
+    -------
+    int
+        Available memory in GBs
+    """
+    available_memory_bytes = os.environ.get("CO_MEMORY", None)
+
+    if available_memory_bytes is not None:
+        available_memory_bytes = int(available_memory_bytes)
+    else:
+        # Use psutil to get available virtual memory in bytes
+        available_memory_bytes = psutil.virtual_memory().available
+
+    available_memory_gb = available_memory_bytes / (1024**3)
+    return available_memory_gb
+
+
 def compute_multiscale(
     output_zarr,
     zarr_group,
@@ -685,13 +707,17 @@ def compute_multiscale(
     threads_per_worker=1,
 ):
 
+    available_memory_gbs = get_available_memory()
+    print(f"Available memory for local cluster: {available_memory_gbs}")
+
     # Instantiating local cluster for parallel writing
     cluster = LocalCluster(
         n_workers=n_workers,
         threads_per_worker=threads_per_worker,
         processes=True,
-        memory_limit="auto",
+        memory_limit=f"{available_memory_gbs}GB",
     )
+    print(f"Local cluster: {cluster}")
 
     client = Client(cluster)
     client.run(gc.collect)

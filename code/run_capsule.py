@@ -319,14 +319,14 @@ def run():
         f"{data_folder}/data_description.json",
     ]
 
-    missing_files = validate_capsule_inputs(required_input_elements)
+    #     missing_files = validate_capsule_inputs(required_input_elements)
 
     print(f"Data in folder: {list(data_folder.glob('*'))}")
 
-    if len(missing_files):
-        raise ValueError(
-            f"We miss the following files in the capsule input: {missing_files}"
-        )
+    #     if len(missing_files):
+    #         raise ValueError(
+    #             f"We miss the following files in the capsule input: {missing_files}"
+    #         )
 
     dask.config.set(
         {
@@ -353,12 +353,14 @@ def run():
         raise ValueError(
             f"Not able to read acquisition metadata from {acquisition_path}"
         )
-    
-    dataset_name = description_dict.get('input_data_name') or description_dict.get('name')
+
+    dataset_name = description_dict.get("input_data_name") or description_dict.get(
+        "name"
+    )
 
     if dataset_name is None:
         raise ValueError(f"Please, provide a valid dataset name: {description_dict}")
-    
+
     voxel_resolution = get_resolution(acquisition_dict)
 
     derivatives_path = data_folder.joinpath("derivatives")
@@ -441,8 +443,10 @@ def run():
                 process_name="stitched",
             )
             """
-            
-            s3_path = f"s3://{bucket_path}/smartspim_destriping/{dataset_name}_destriped"
+
+            s3_path = (
+                f"s3://{bucket_path}/smartspim_destriping/{dataset_name}_destriped"
+            )
             dest_destriped_data = f"{s3_path}/image_destriping"
 
             source_folder = results_folder.joinpath(f"destriped_data/{channel_name}")
