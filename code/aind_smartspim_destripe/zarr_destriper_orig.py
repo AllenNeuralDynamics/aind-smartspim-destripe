@@ -923,7 +923,7 @@ def destripe_zarr(
     no_cells_config = parameters["no_cells_config"]
     cells_config = parameters["cells_config"]
 
-    co_cpus = int(utils.get_code_ocean_cpu_limit())
+    co_cpus = int(utils.get_cpu_limit())
 
     if n_workers > co_cpus:
         raise ValueError(f"Provided workers {n_workers} > current workers {co_cpus}")

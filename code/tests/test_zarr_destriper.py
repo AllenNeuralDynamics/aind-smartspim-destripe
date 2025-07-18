@@ -12,7 +12,6 @@ sys.path.append("../")
 from unittest.mock import mock_open, patch
 
 import numpy as np
-
 from aind_smartspim_destripe.zarr_destriper import (extract_global_to_local,
                                                     pad_array_n_d,
                                                     read_json_as_dict)

@@ -11,8 +11,7 @@ from unittest.mock import MagicMock, mock_open, patch
 
 sys.path.append("../")
 
-from aind_smartspim_destripe.utils.utils import (create_folder,
-                                                 get_code_ocean_cpu_limit,
+from aind_smartspim_destripe.utils.utils import (create_folder, get_cpu_limit,
                                                  profile_resources,
                                                  read_json_as_dict,
                                                  stop_child_process)
@@ -30,7 +29,7 @@ class TestUtilities(unittest.TestCase):
 
     @patch("os.environ.get")
     @patch("psutil.cpu_count")
-    def test_get_code_ocean_cpu_limit(self, mock_cpu_count, mock_env_get):
+    def test_get_cpu_limit(self, mock_cpu_count, mock_env_get):
         """
         Tests we get the code ocean CPU limits if
         it's a code ocean instance
@@ -38,14 +37,14 @@ class TestUtilities(unittest.TestCase):
         mock_env_get.side_effect = lambda x: "4" if x == "CO_CPUS" else None
         mock_cpu_count.return_value = 8
 
-        self.assertEqual(get_code_ocean_cpu_limit(), "4")
+        self.assertEqual(get_cpu_limit(), "4")
 
         mock_env_get.side_effect = lambda x: None
         with patch("builtins.open", mock_open(read_data="100000")) as mock_file:
-            self.assertEqual(get_code_ocean_cpu_limit(), 1)
+            self.assertEqual(get_cpu_limit(), 1)
 
         mock_file.side_effect = FileNotFoundError
-        self.assertEqual(get_code_ocean_cpu_limit(), 8)
+        self.assertEqual(get_cpu_limit(), 8)
 
     @patch("multiprocessing.Process.terminate")
     @patch("multiprocessing.Process.join")
@@ -56,11 +55,11 @@ class TestUtilities(unittest.TestCase):
         process.join.assert_called_once()
 
     @patch.dict(os.environ, {"AWS_BATCH_JOB_ID": "job_id"}, clear=True)
-    def test_get_code_ocean_cpu_limit_aws_batch(self):
+    def test_get_cpu_limit_aws_batch(self):
         """
         Tests the case where it's a pipeline execution
         """
-        self.assertEqual(get_code_ocean_cpu_limit(), 1)
+        self.assertEqual(get_cpu_limit(), 1)
 
     def test_create_folder(self):
         """
