@@ -12,9 +12,10 @@ import numpy as np
 import tifffile as tif
 from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
                                               Processing, ProcessName)
+from natsort import natsorted
+
 from aind_smartspim_destripe import __version__, zarr_destriper
 from aind_smartspim_destripe.utils import utils
-from natsort import natsorted
 
 
 def get_data_config(
@@ -356,13 +357,19 @@ def run():
 
     channels = None
     dataset_name = data_description_dict.get("name")
-    BASE_PATH = PurePath(f"s3://{bucket_name}")
-    prefix = f"{dataset_name}/SPIM/"
+    BASE_PATH = f"s3://{bucket_name}/"  # data_folder
+    prefix = f"{dataset_name}/SPIM"
 
     if utils.is_s3_path(str(BASE_PATH)):
-        channels = utils.list_s3_folders(bucket=bucket_name, prefix=prefix)
+        BASE_PATH = f"{BASE_PATH}{prefix}"
+        channels = [
+            i
+            for i in utils.list_s3_folders(bucket=bucket_name, prefix=prefix)
+            if "Ex" in i
+        ]
     else:
         prefix = ""
+        BASE_PATH = Path(BASE_PATH)
         channels = [
             folder.name
             for folder in list(BASE_PATH.glob("Ex_*_Em_*"))
@@ -391,7 +398,7 @@ def run():
                 )
 
             parameters = {
-                "input_path": BASE_PATH.joinpath(f"{prefix}{channel_name}"),
+                "input_path": f"{BASE_PATH}/{channel_name}",
                 "output_path": str(results_folder),
                 "no_cells_config": {
                     "wavelet": "db3",

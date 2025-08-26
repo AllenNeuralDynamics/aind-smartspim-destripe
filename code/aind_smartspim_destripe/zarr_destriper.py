@@ -1222,7 +1222,7 @@ def destripe_channel(
     parameters,
 ):
     """Main function"""
-    channel_dataset = zarr_dataset_path.joinpath(channel_name)
+    channel_dataset = f"{zarr_dataset_path}/{channel_name}"
 
     destriped_data_folder = results_folder.joinpath("destriped_data")
 
@@ -1230,18 +1230,21 @@ def destripe_channel(
 
     tile_paths = []
     if utils.is_s3_path(str(channel_dataset)):
-        bucket_name, prefix = utils.parse_s3_path(str(channel_dataset))
+        bucket_name, prefix = utils.split_s3_path(str(channel_dataset))
         tile_paths = utils.list_s3_folders(
             bucket=bucket_name, prefix=prefix, extension=".ome.zarr"
         )
 
+        tile_paths = [f"{channel_dataset}/{tile_path}" for tile_path in tile_paths]
+
     else:
+        channel_dataset = Path(channel_dataset)
         tile_paths = list(channel_dataset.glob("*.zarr"))
 
     for tile_path in tile_paths:
-        tile_path = PurePath(tile_path)
+        tile_path_parsed = PurePath(tile_path)
         output_folder = destriped_data_folder.joinpath(
-            f"{channel_name}/{tile_path.name}"
+            f"{channel_name}/{tile_path_parsed.name}"
         )
         print(
             f"Processing {tile_path} - writing to: {output_folder} - derivatives: {derivatives_path}"
@@ -1249,7 +1252,7 @@ def destripe_channel(
 
         flatfield_path = None
         for side, tiles in laser_tiles.items():
-            tile_path_stem = tile_path.stem.rsplit(".", 1)[0]
+            tile_path_stem = tile_path_parsed.stem.rsplit(".", 1)[0]
             if tile_path_stem in tiles:
                 flatfield_path = estimated_channel_flats[int(side)]
                 break
