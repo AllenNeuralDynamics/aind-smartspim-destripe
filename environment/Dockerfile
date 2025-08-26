@@ -18,8 +18,8 @@ RUN conda install -n destriper -c conda-forge imagecodecs -y
 
 # Install Python deps via pip
 RUN pip install -U --no-cache-dir \
-    git+https://github.com/AllenNeuralDynamics/aind-large-scale-prediction.git@unpinned-versions \
     numpy==1.26.4 \
+    git+https://github.com/AllenNeuralDynamics/aind-large-scale-prediction.git@unpinned-versions \
     scipy==1.13.1 \
     scikit-image==0.24.0 \
     tifffile==2024.5.10 \
