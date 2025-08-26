@@ -7,7 +7,7 @@ import logging
 import multiprocessing
 import os
 from glob import glob
-from pathlib import Path
+from pathlib import Path, PurePath
 from time import time
 from typing import Callable, Dict, List, Optional, Tuple, cast
 
@@ -1027,7 +1027,7 @@ def destripe_zarr(
     lazy_data = (
         ImageReaderFactory()
         .create(
-            data_path=dataset_path,
+            data_path=str(dataset_path),
             parse_path=False,
             multiscale=multiscale,
         )
@@ -1228,7 +1228,18 @@ def destripe_channel(
 
     utils.create_folder(destriped_data_folder)
 
-    for tile_path in channel_dataset.glob("*.zarr"):
+    tile_paths = []
+    if utils.is_s3_path(str(channel_dataset)):
+        bucket_name, prefix = utils.parse_s3_path(str(channel_dataset))
+        tile_paths = utils.list_s3_folders(
+            bucket=bucket_name, prefix=prefix, extension=".ome.zarr"
+        )
+
+    else:
+        tile_paths = list(channel_dataset.glob("*.zarr"))
+
+    for tile_path in tile_paths:
+        tile_path = PurePath(tile_path)
         output_folder = destriped_data_folder.joinpath(
             f"{channel_name}/{tile_path.name}"
         )
