@@ -357,18 +357,27 @@ def run():
 
     channels = None
     dataset_name = data_description_dict.get("name")
-    BASE_PATH = data_folder # f"s3://{bucket_name}/"
-    prefix = f"{dataset_name}/SPIM"
+
+    # Dispatcher generates preprocess_{channel_name}.json files
+    # These are split to instantiate a single machine per channel
+    # Find channel configuration files using multiple patterns
+    channel_config_paths = list(data_folder.glob("preprocess_*.json"))
+    
+    # The connection is default, so we can pick the first config
+    BASE_PATH = data_folder
+    if Path(channel_config_paths[0]).suffix == ".json":
+        BASE_PATH = f"s3://{bucket_name}/"
 
     if utils.is_s3_path(str(BASE_PATH)):
+        prefix = f"{dataset_name}/SPIM"
         BASE_PATH = f"{BASE_PATH}{prefix}"
+
         channels = [
             i
             for i in utils.list_s3_folders(bucket=bucket_name, prefix=prefix)
             if "Ex" in i
         ]
     else:
-        prefix = ""
         BASE_PATH = Path(BASE_PATH)
         channels = [
             folder.name
