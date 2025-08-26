@@ -357,7 +357,7 @@ def run():
 
     channels = None
     dataset_name = data_description_dict.get("name")
-    BASE_PATH = f"s3://{bucket_name}/"  # data_folder
+    BASE_PATH = data_folder # f"s3://{bucket_name}/"
     prefix = f"{dataset_name}/SPIM"
 
     if utils.is_s3_path(str(BASE_PATH)):
