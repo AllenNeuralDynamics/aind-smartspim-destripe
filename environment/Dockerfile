@@ -33,4 +33,5 @@ RUN pip install -U --no-cache-dir \
     natsort==8.4.0 \
     imageio==2.35.1 \
     xarray_multiscale==2.1.0 \
-    boto3
+    boto3 \
+    s3fs
