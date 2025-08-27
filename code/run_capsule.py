@@ -371,7 +371,9 @@ def run():
     if utils.is_s3_path(str(BASE_PATH)):
         prefix = f"{dataset_name}/SPIM"
         BASE_PATH = f"{BASE_PATH}{prefix}"
-        channel_to_process = channel_config_paths[0].get('channel')
+
+        channel_config = utils.read_json_as_dict(channel_config_paths[0])
+        channel_to_process = channel_config.get('channel')
 
         if not channel_to_process:
             raise ValueError(f"Please, provide a channel to process. Config: {channel_config_paths[0]}")
