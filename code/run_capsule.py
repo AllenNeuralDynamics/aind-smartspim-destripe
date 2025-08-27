@@ -371,11 +371,15 @@ def run():
     if utils.is_s3_path(str(BASE_PATH)):
         prefix = f"{dataset_name}/SPIM"
         BASE_PATH = f"{BASE_PATH}{prefix}"
+        channel_to_process = channel_config_paths[0].get('channel')
+
+        if not channel_to_process:
+            raise ValueError(f"Please, provide a channel to process. Config: {channel_config_paths[0]}")
 
         channels = [
             i
             for i in utils.list_s3_folders(bucket=bucket_name, prefix=prefix)
-            if "Ex" in i
+            if str(channel_to_process) in i
         ]
     else:
         BASE_PATH = Path(BASE_PATH)
