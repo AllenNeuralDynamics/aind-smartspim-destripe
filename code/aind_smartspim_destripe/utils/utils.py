@@ -12,7 +12,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import urlparse
 
+import boto3
 import matplotlib.pyplot as plt
 import psutil
 from natsort import natsorted
@@ -194,7 +196,7 @@ def get_size(bytes, suffix: str = "B") -> str:
         bytes /= factor
 
 
-def get_code_ocean_cpu_limit():
+def get_cpu_limit():
     """
     Gets the Code Ocean capsule CPU limit
 
@@ -207,10 +209,18 @@ def get_code_ocean_cpu_limit():
     co_cpus = os.environ.get("CO_CPUS")
     aws_batch_job_id = os.environ.get("AWS_BATCH_JOB_ID")
 
+    # Trying to get CPU cores from Code Ocean
     if co_cpus:
         return co_cpus
     if aws_batch_job_id:
         return 1
+
+    # Trying to get CPU cores from SLURM
+    slurm_cpus = os.environ.get("SLURM_JOB_CPUS_PER_NODE")
+
+    # Total cpus in node SLURM_CPUS_ON_NODE
+    if slurm_cpus:
+        return slurm_cpus
 
     try:
         with open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us") as fp:
@@ -227,6 +237,54 @@ def get_code_ocean_cpu_limit():
     return psutil.cpu_count(logical=False) if container_cpus < 1 else container_cpus
 
 
+def get_memory_limit_bytes():
+    """
+    Gets the best estimate of the memory limit (in bytes) for the current job.
+    Order of precedence:
+    1. CO_MEMORY environment variable (assumed in GB)
+    2. Cgroup memory limit (from /sys/fs/cgroup/)
+    3. SLURM environment variables
+    4. psutil system memory (total)
+    """
+    # 1. CO_MEMORY (in GB)
+    memory_env = os.environ.get("CO_MEMORY")
+    if memory_env:
+        try:
+            return int(memory_env)  # Convert GB → bytes
+        except ValueError:
+            pass  # Invalid format, fallback
+
+    # 2. cgroup memory limit (in bytes)
+    cgroup_path = "/sys/fs/cgroup/memory/memory.limit_in_bytes"
+    try:
+        with open(cgroup_path, "r") as f:
+            mem_bytes = int(f.read().strip())
+            # Some systems report a huge number when no limit is set
+            if mem_bytes < 1 << 50:  # Filter out values >1PB
+                return mem_bytes
+    except FileNotFoundError:
+        pass
+
+    # 3. SLURM memory allocation
+    mem_per_node = os.environ.get("SLURM_MEM_PER_NODE")  # in MB
+    if mem_per_node:
+        try:
+            return int(mem_per_node) * 1024**2  # MB → bytes
+        except ValueError:
+            pass
+
+    mem_per_cpu = os.environ.get("SLURM_MEM_PER_CPU")  # in MB
+    cpus = os.environ.get("SLURM_JOB_CPUS_PER_NODE")
+    if mem_per_cpu and cpus:
+        try:
+            return int(mem_per_cpu) * int(cpus) * 1024**2  # MB → bytes
+        except ValueError:
+            pass
+
+    # 4. Fallback: system-wide total memory
+    return psutil.virtual_memory().total
+
+
 def print_system_information(logger: logging.Logger):
     """
     Prints system information
@@ -236,15 +294,28 @@ def print_system_information(logger: logging.Logger):
     logger: logging.Logger
         Logger object
     """
-    co_memory = int(os.environ.get("CO_MEMORY"))
+    memory = get_memory_limit_bytes()
+
+    if memory:
+        memory = int(memory)
+        memory = get_size(memory)
+
+    slurm_id = os.environ.get("SLURM_JOBID")
     # System info
-    sep = "=" * 40
-    logger.info(f"{sep} Code Ocean Information {sep}")
-    logger.info(f"Code Ocean assigned cores: {get_code_ocean_cpu_limit()}")
-    logger.info(f"Code Ocean assigned memory: {get_size(co_memory)}")
+    sep = "=" * 20
+    logger.info(f"{sep} Machine Information {sep}")
+    logger.info(f"Assigned cores: {get_cpu_limit()}")
+    logger.info(f"Assigned memory: {memory} GBs")
     logger.info(f"Computation ID: {os.environ.get('CO_COMPUTATION_ID')}")
     logger.info(f"Capsule ID: {os.environ.get('CO_CAPSULE_ID')}")
     logger.info(f"Is pipeline execution?: {bool(os.environ.get('AWS_BATCH_JOB_ID'))}")
+    logger.info(f"Is pipeline execution in SLURM?: {bool(slurm_id)}")
+    logger.info(f"SLURM ID: {slurm_id}")
+    logger.info(f"SLURM GPUs: {os.environ.get('SLURM_JOB_GPUS')}")
+    logger.info(f"SLURM CPUs: {os.environ.get('SLURM_JOB_CPUS_PER_NODE')}")
+    logger.info(
+        f"SLURM variables {[( k, v ) for k, v in os.environ.items() if 'SLURM' in k]}"
+    )
 
     logger.info(f"{sep} System Information {sep}")
     uname = platform.uname()
@@ -442,3 +513,108 @@ def read_json_as_dict(filepath: str) -> dict:
     #             print(f"Reading {filepath} forced: {dictionary}")
 
     return dictionary
+
+
+def list_s3_folders(bucket: str, prefix: str, extension: Optional[str] = None) -> list:
+    """
+    List top-level 'folders' under a given S3 prefix that end with a given extension.
+
+    Parameters
+    ----------
+        bucket: str
+            Name of the S3 bucket.
+        prefix: str
+            S3 prefix path (e.g., "my/path/"), must end with "/".
+        extension: str
+            Extension to match folder names against (e.g., ".tif", ".zip").
+
+    Returns
+    -------
+        list: A list of matching folder prefixes (strings ending with "/").
+    """
+    if not prefix.endswith("/"):
+        prefix += "/"
+
+    s3 = boto3.client("s3")
+    paginator = s3.get_paginator("list_objects_v2")
+
+    folders = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
+        for cp in page.get("CommonPrefixes", []):
+            folder_name = Path(cp["Prefix"].rstrip("/")).name
+            if extension is None or folder_name.endswith(extension):
+                folders.append(folder_name)
+
+    return folders
+
+
+def list_s3_files(bucket: str, prefix: str, extension: str) -> list:
+    """
+    List files under a given S3 prefix that end with a given extension.
+
+    Parameters
+    ----------
+    bucket: str
+        Name of the S3 bucket.
+    prefix: str
+        S3 prefix path (e.g., "my/path/"), must end with "/".
+    extension: str
+        Extension to match file names against (e.g., ".tif", ".zip").
+
+    Returns
+    -------
+    list: A list of matching file keys.
+    """
+    if not prefix.endswith("/"):
+        prefix += "/"
+
+    s3 = boto3.client("s3")
+    paginator = s3.get_paginator("list_objects_v2")
+
+    files = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            if key.endswith(extension):
+                files.append(key)
+
+    return files
+
+
+def is_s3_path(path: str) -> bool:
+    """
+    Checks if a path is an s3 path
+
+    Parameters
+    ----------
+    path: str
+        Provided path
+
+    Returns
+    -------
+    bool
+        True if it is a S3 path,
+        False if not.
+    """
+    parsed = urlparse(str(path))
+    return parsed.scheme == "s3"
+
+
+def split_s3_path(s3_path: str):
+    """
+    Split an S3 URI into bucket and prefix.
+
+    Parameters
+    ----------
+    s3_path : str
+        Example: "s3://my-bucket/folder1/folder2/"
+
+    Returns
+    -------
+    (bucket, prefix) : tuple[str, str]
+    """
+    parsed = urlparse(s3_path)
+    bucket = parsed.netloc
+    # remove leading slash
+    prefix = parsed.path.lstrip("/")
+    return bucket, prefix

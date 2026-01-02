@@ -7,7 +7,7 @@ import logging
 import multiprocessing
 import os
 from glob import glob
-from pathlib import Path
+from pathlib import Path, PurePath
 from time import time
 from typing import Callable, Dict, List, Optional, Tuple, cast
 
@@ -972,7 +972,7 @@ def destripe_zarr(
     no_cells_config = parameters["no_cells_config"]
     cells_config = parameters["cells_config"]
 
-    co_cpus = int(utils.get_code_ocean_cpu_limit())
+    co_cpus = int(utils.get_cpu_limit())
 
     if n_workers > co_cpus:
         raise ValueError(f"Provided workers {n_workers} > current workers {co_cpus}")
@@ -1027,7 +1027,7 @@ def destripe_zarr(
     lazy_data = (
         ImageReaderFactory()
         .create(
-            data_path=dataset_path,
+            data_path=str(dataset_path),
             parse_path=False,
             multiscale=multiscale,
         )
@@ -1222,15 +1222,29 @@ def destripe_channel(
     parameters,
 ):
     """Main function"""
-    channel_dataset = zarr_dataset_path.joinpath(channel_name)
+    channel_dataset = f"{zarr_dataset_path}/{channel_name}"
 
     destriped_data_folder = results_folder.joinpath("destriped_data")
 
     utils.create_folder(destriped_data_folder)
 
-    for tile_path in channel_dataset.glob("*.zarr"):
+    tile_paths = []
+    if utils.is_s3_path(str(channel_dataset)):
+        bucket_name, prefix = utils.split_s3_path(str(channel_dataset))
+        tile_paths = utils.list_s3_folders(
+            bucket=bucket_name, prefix=prefix, extension=".ome.zarr"
+        )
+
+        tile_paths = [f"{channel_dataset}/{tile_path}" for tile_path in tile_paths]
+
+    else:
+        channel_dataset = Path(channel_dataset)
+        tile_paths = list(channel_dataset.glob("*.zarr"))
+
+    for tile_path in tile_paths:
+        tile_path_parsed = PurePath(tile_path)
         output_folder = destriped_data_folder.joinpath(
-            f"{channel_name}/{tile_path.name}"
+            f"{channel_name}/{tile_path_parsed.name}"
         )
         print(
             f"Processing {tile_path} - writing to: {output_folder} - derivatives: {derivatives_path}"
@@ -1238,7 +1252,7 @@ def destripe_channel(
 
         flatfield_path = None
         for side, tiles in laser_tiles.items():
-            tile_path_stem = tile_path.stem.rsplit(".", 1)[0]
+            tile_path_stem = tile_path_parsed.stem.rsplit(".", 1)[0]
             if tile_path_stem in tiles:
                 flatfield_path = estimated_channel_flats[int(side)]
                 break

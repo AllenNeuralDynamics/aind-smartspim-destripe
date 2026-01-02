@@ -7,13 +7,19 @@ ARG GIT_ASKPASS
 ARG GIT_ACCESS_TOKEN
 COPY git-askpass /
 
+# Create conda env with Python 3.9
 RUN conda create -n destriper python=3.9 -y
-SHELL ["conda", "run", "-n", "destriper", "/bin/bash", "-c"]
-# RUN conda install -c conda-forge awscli
 
+# Use conda run as default shell inside container
+SHELL ["conda", "run", "-n", "destriper", "/bin/bash", "-c"]
+
+# Install imagecodecs + deps from conda-forge (no compilation needed)
+RUN conda install -n destriper -c conda-forge imagecodecs -y
+
+# Install Python deps via pip
 RUN pip install -U --no-cache-dir \
-    aind-large-scale-prediction==1.0.0 \
     numpy==1.26.4 \
+    git+https://github.com/AllenNeuralDynamics/aind-large-scale-prediction.git@unpinned-versions \
     scipy==1.13.1 \
     scikit-image==0.24.0 \
     tifffile==2024.5.10 \
@@ -26,4 +32,6 @@ RUN pip install -U --no-cache-dir \
     BaSiCPy==1.1.0 \
     natsort==8.4.0 \
     imageio==2.35.1 \
-    xarray_multiscale==2.1.0
+    xarray_multiscale==2.1.0 \
+    boto3 \
+    s3fs

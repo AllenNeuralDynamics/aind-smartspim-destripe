@@ -1,15 +1,12 @@
 """SmartSPIM destriper version."""
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"
 __authors__ = ["Camilo Laiton"]
 __author_emails__ = [
     "camilo.laiton@alleninstitute.org",
 ]
 __license__ = "MIT"
-__description__ = (
-    "Image preprocessing for flatfield correction and "
-    "image destriping"
-)
+__description__ = "Image preprocessing for flatfield correction and " "image destriping"
 __url__ = "https://github.com/AllenNeuralDynamics/aind-smartspim-destripe"
 
 __maintainers__ = ["Camilo Laiton"]
