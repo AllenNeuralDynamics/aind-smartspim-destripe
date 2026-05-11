@@ -331,9 +331,8 @@ def execute_worker(
     )
 
     filtered_data_converted = np.clip(filtered_data, 0, 65535).astype(np.uint16)
-    #     filtered_data_converted = (filtered_data_converted / filtered_data.max() * 65535).astype(np.uint16)
 
-    output_destriped_zarr[output_slices] = filtered_data
+    output_destriped_zarr[output_slices] = filtered_data_converted
 
 
 #     return filtered_data_converted, output_slices
@@ -658,8 +657,9 @@ def write_ome_ngff_metadata(
     )
     group.attrs["omero"] = ome_json
     axes_5d = _get_axes_5d()
+    output_chunks = (1, 1, 64, 128, 128)
     coordinate_transformations, chunk_opts = _compute_scales(
-        n_lvls, scale_factors, voxel_size, arr.chunksize, arr.shape, None
+        n_lvls, scale_factors, voxel_size, output_chunks, arr.shape, None
     )
     fmt.validate_coordinate_transformations(
         arr.ndim, n_lvls, coordinate_transformations

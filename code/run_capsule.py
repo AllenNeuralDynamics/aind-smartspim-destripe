@@ -128,8 +128,9 @@ def generate_data_processing(
             and with the current dark from the microscope.
             """
 
-    del destripe_config["input_path"]
-    del destripe_config["output_path"]
+    process_params = {
+        k: v for k, v in destripe_config.items() if k not in ("input_path", "output_path")
+    }
 
     pipeline_process = PipelineProcess(
         data_processes=[
@@ -142,7 +143,7 @@ def generate_data_processing(
                 output_location=str(output_path),
                 code_version=destripe_version,
                 code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
-                parameters=destripe_config,
+                parameters=process_params,
                 notes=f"Destriping for channel {channel_name} in zarr format",
             ),
             DataProcess(
@@ -362,7 +363,12 @@ def run():
     # These are split to instantiate a single machine per channel
     # Find channel configuration files using multiple patterns
     channel_config_paths = list(data_folder.glob("preprocess_*.json"))
-    
+
+    if not channel_config_paths:
+        raise FileNotFoundError(
+            "No preprocess_*.json configuration file found in data folder"
+        )
+
     # The connection is default, so we can pick the first config
     BASE_PATH = data_folder
     if Path(channel_config_paths[0]).suffix == ".json":

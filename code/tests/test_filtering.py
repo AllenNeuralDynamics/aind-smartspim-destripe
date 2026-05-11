@@ -166,7 +166,7 @@ class SmartspimFiltering(unittest.TestCase):
 
         # Validate the result
         self.assertEqual(result.shape, input_image.shape)
-        self.assertTrue(np.all(result > 0))  # Ensure no negative values in the result
+        self.assertTrue(np.all(np.isfinite(result)))  # Ensure no inf or nan
 
     def test_log_space_fft_filtering_small_image(self):
         """
@@ -279,3 +279,25 @@ class SmartspimFiltering(unittest.TestCase):
             shadow_correction=shadow_correction,
         )
         self.assertIsNotNone(filtered_image, "Shadow correction not applied correctly")
+
+    def test_normalize_image_constant(self):
+        """normalize_image must not raise ZeroDivisionError on constant input"""
+        constant = np.full((3, 4, 4), 500.0)
+        result = filtering.normalize_image([constant])
+        self.assertTrue(np.all(np.isfinite(result)), "Result must be finite for constant image")
+
+    def test_log_space_fft_filtering_finite(self):
+        """log_space_fft_filtering output must be finite (no inf/nan)"""
+        rng = np.random.default_rng(42)
+        image = rng.integers(0, 65535, (128, 128), dtype=np.uint16).astype(np.float32)
+        result = filtering.log_space_fft_filtering(image)
+        self.assertTrue(np.all(np.isfinite(result)), "Output contains inf or nan")
+
+    def test_flatfield_correction_zero_flatfield(self):
+        """flatfield_correction must not produce inf/nan when flatfield has a zero element"""
+        image_tiles = np.array([[[100, 200], [300, 400]]], dtype=np.float32)
+        flatfield = np.array([[[0.0, 2.0], [2.0, 2.0]]], dtype=np.float32)
+        darkfield = np.array([[[0.0, 0.0], [0.0, 0.0]]], dtype=np.float32)
+        result = filtering.flatfield_correction(image_tiles, flatfield, darkfield)
+        self.assertTrue(np.all(np.isfinite(result)), "Result contains inf or nan")
+        self.assertEqual(result.dtype, np.uint16)

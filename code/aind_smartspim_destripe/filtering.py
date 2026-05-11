@@ -219,7 +219,7 @@ def log_space_fft_filtering(
         coeff_filtered.append((ch_filtered, cv, cd))
 
     img_log_filtered = pywt.waverec2(coeff_filtered, wavelet)
-    img_filtered = np.exp(img_log_filtered) + 1.0
+    img_filtered = np.exp(np.clip(img_log_filtered, None, 88.0)) - 1.0
 
     return img_filtered
 
@@ -245,7 +245,11 @@ def normalize_image(images: List[np.array]) -> np.ndarray:
     max_val = np.max(images)
     imgs_minus_min = images - min_val
     max_min = max_val - min_val
-    normalized_imgs = 1 + np.divide(imgs_minus_min, max_min).astype(np.float16)
+
+    if max_min == 0:
+        return np.full_like(images, 1.5, dtype=np.float32)
+
+    normalized_imgs = 1.0 + np.divide(imgs_minus_min, max_min)
 
     return normalized_imgs
 
@@ -374,7 +378,8 @@ def flatfield_correction(
     if image_tiles.ndim != darkfield.ndim:
         darkfield = np.expand_dims(darkfield, axis=0)
 
-    darkfield = darkfield[: image_tiles.shape[-2], : image_tiles.shape[-1]]
+    darkfield = darkfield[..., : image_tiles.shape[-2], : image_tiles.shape[-1]]
+    flatfield = flatfield[..., : image_tiles.shape[-2], : image_tiles.shape[-1]]
 
     if darkfield.shape != image_tiles.shape:
         msg = (
@@ -395,18 +400,17 @@ def flatfield_correction(
 
     baseline_indxs = tuple([slice(None)] + ([np.newaxis] * (image_tiles.ndim - 1)))
 
-    # Subtracting dark field
-    negative_darkfield = np.where(image_tiles <= darkfield)
-    positive_darkfield = np.where(image_tiles > darkfield)
+    # Subtracting dark field — work on a float32 copy to avoid mutating the input
+    corrected = image_tiles.astype(np.float32, copy=True)
+    negative_darkfield = np.where(corrected <= darkfield)
+    positive_darkfield = np.where(corrected > darkfield)
 
-    # subtracting darkfield
-    image_tiles[negative_darkfield] = 0
-    image_tiles[positive_darkfield] = (
-        image_tiles[positive_darkfield] - darkfield[positive_darkfield]
-    )
+    corrected[negative_darkfield] = 0.0
+    corrected[positive_darkfield] -= darkfield[positive_darkfield]
 
-    # Applying flatfield
-    corrected_tiles = image_tiles / flatfield - baseline[baseline_indxs]
+    # Applying flatfield — guard against zero to prevent inf/nan
+    safe_flatfield = np.where(flatfield > 0, flatfield, np.finfo(np.float32).eps)
+    corrected_tiles = corrected / safe_flatfield - baseline[baseline_indxs]
 
     # Converting back to uint16
     corrected_tiles = np.clip(corrected_tiles, 0, 65535).astype("uint16")
