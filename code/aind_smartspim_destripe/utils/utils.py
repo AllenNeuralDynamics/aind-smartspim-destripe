@@ -211,7 +211,7 @@ def get_cpu_limit():
 
     # Trying to get CPU cores from Code Ocean
     if co_cpus:
-        return co_cpus
+        return int(co_cpus)
     if aws_batch_job_id:
         return 1
 
@@ -220,7 +220,7 @@ def get_cpu_limit():
 
     # Total cpus in node SLURM_CPUS_ON_NODE
     if slurm_cpus:
-        return slurm_cpus
+        return int(slurm_cpus)
 
     try:
         with open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us") as fp:

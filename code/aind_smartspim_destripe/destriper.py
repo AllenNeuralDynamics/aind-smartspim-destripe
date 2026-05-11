@@ -78,10 +78,10 @@ def imsave(path, img, compression=1, output_format: Optional[str] = None):
                 compressionargs={"level": compression},
             )  # Use with version 2023.03.21
 
-        elif extension == ".tif" or extension == ".tiff":
+        elif extension in (".tif", ".tiff"):
             # tifffile.imsave(path, img, compress=compression) # Use with versions <= 2020.9.3
             tifffile.imsave(
-                os.path.splitext(path)[0] + ".tiff",
+                path,
                 img,
                 compressionargs={"level": compression},
             )  # Use with version 2023.03.21
@@ -174,16 +174,14 @@ def read_filter_save(
             if output_dtype is not None and isinstance(output_dtype, type):
                 dtype = output_dtype
 
-        except:
+        except Exception as e:
             if i == n - 1:
+                logger.error(f"Error reading {input_path}: {e}")
                 file_name = os.path.join(output_dir, "destripe_log.txt")
-                if not os.path.exists(file_name):
-                    error_file = open(file_name, "w")
-                    error_file.write(
-                        "Error reading the following images.  We will interpolate their content."
-                    )
-                    error_file.close()
-                error_file = open(file_name, "a+")
+                error_file = open(file_name, "a")
+                error_file.write(
+                    "Error reading the following images.  We will interpolate their content."
+                )
                 error_file.write("\n{}".format(str(input_path)))
                 error_file.close()
                 return
@@ -209,10 +207,12 @@ def read_filter_save(
                 compression=compression,
                 output_format=output_format,
             )
-        except OSError:
-            logger.error(f"Retrying writing image in {output_path}...")
+            break
+        except OSError as e:
+            logger.error(f"Retrying writing image in {output_path}: {e}")
             continue
-        break
+    else:
+        logger.error(f"Permanently failed to save {output_path} after {nb_retry} attempts")
 
 
 def _read_filter_save(input_dict: dict):

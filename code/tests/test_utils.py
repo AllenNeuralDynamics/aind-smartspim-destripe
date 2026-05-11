@@ -37,7 +37,8 @@ class TestUtilities(unittest.TestCase):
         mock_env_get.side_effect = lambda x: "4" if x == "CO_CPUS" else None
         mock_cpu_count.return_value = 8
 
-        self.assertEqual(get_cpu_limit(), "4")
+        self.assertEqual(get_cpu_limit(), 4)
+        self.assertIsInstance(get_cpu_limit(), int)
 
         mock_env_get.side_effect = lambda x: None
         with patch("builtins.open", mock_open(read_data="100000")) as mock_file:
