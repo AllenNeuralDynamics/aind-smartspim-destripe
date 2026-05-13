@@ -280,6 +280,48 @@ class SmartspimFiltering(unittest.TestCase):
         )
         self.assertIsNotNone(filtered_image, "Shadow correction not applied correctly")
 
+    @patch("aind_smartspim_destripe.filtering.log_space_fft_filtering")
+    @patch("aind_smartspim_destripe.filtering.get_foreground_background_mean")
+    def test_filter_stripes_cells_branch(
+        self, mock_get_fg, mock_log_fft
+    ):
+        """filter_stripes uses cells_config when fore_mean > back_mean and > microscope_high_int."""
+        image = np.ones((10, 10), dtype=np.float32)
+        no_cells_config = {"wavelet": "db3", "sigma": 128, "max_threshold": 12}
+        cells_config = {"wavelet": "db3", "sigma": 64, "max_threshold": 3}
+
+        mock_get_fg.return_value = (5000, 100, None)
+        mock_log_fft.return_value = image
+
+        filtering.filter_stripes(
+            image, "path/to/tile", no_cells_config, cells_config, shadow_correction=None
+        )
+
+        call_kwargs = mock_log_fft.call_args.kwargs
+        self.assertEqual(call_kwargs["sigma"], 64)
+        self.assertEqual(call_kwargs["max_threshold"], 3)
+
+    @patch("aind_smartspim_destripe.filtering.log_space_fft_filtering")
+    @patch("aind_smartspim_destripe.filtering.get_foreground_background_mean")
+    def test_filter_stripes_no_cells_branch(
+        self, mock_get_fg, mock_log_fft
+    ):
+        """filter_stripes uses no_cells_config when fore_mean does not exceed threshold."""
+        image = np.ones((10, 10), dtype=np.float32)
+        no_cells_config = {"wavelet": "db3", "sigma": 128, "max_threshold": 12}
+        cells_config = {"wavelet": "db3", "sigma": 64, "max_threshold": 3}
+
+        mock_get_fg.return_value = (50, 5, None)  # fore_mean < microscope_high_int (2700)
+        mock_log_fft.return_value = image
+
+        filtering.filter_stripes(
+            image, "path/to/tile", no_cells_config, cells_config, shadow_correction=None
+        )
+
+        call_kwargs = mock_log_fft.call_args.kwargs
+        self.assertEqual(call_kwargs["sigma"], 128)
+        self.assertEqual(call_kwargs["max_threshold"], 12)
+
     def test_normalize_image_constant(self):
         """normalize_image must not raise ZeroDivisionError on constant input"""
         constant = np.full((3, 4, 4), 500.0)

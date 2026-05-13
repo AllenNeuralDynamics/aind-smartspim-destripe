@@ -3,6 +3,10 @@
 import sys
 import unittest
 
+import dask.array as da
+import numpy as np
+import zarr
+
 sys.path.append("../")
 from aind_smartspim_destripe import blocked_zarr_writer
 
@@ -87,3 +91,30 @@ class TestBlockedArrayWriter(unittest.TestCase):
         self.assertEqual(len(slices), 9)  # 3x3 blocks
         self.assertEqual(slices[0], (slice(0, 2), slice(0, 2)))
         self.assertEqual(slices[-1], (slice(4, 5), slice(4, 5)))
+
+    def test_gen_slices_3d(self):
+        """gen_slices produces the correct number of blocks for a 3D array."""
+        arr_shape = (4, 4, 4)
+        block_shape = (2, 2, 2)
+        slices = list(
+            blocked_zarr_writer.BlockedArrayWriter.gen_slices(arr_shape, block_shape)
+        )
+        self.assertEqual(len(slices), 8)  # 2x2x2 blocks
+        self.assertEqual(slices[0], (slice(0, 2), slice(0, 2), slice(0, 2)))
+        self.assertEqual(slices[-1], (slice(2, 4), slice(2, 4), slice(2, 4)))
+
+    def test_get_block_shape(self):
+        """get_block_shape returns the original chunk shape when chunks already fill data_shape."""
+        arr = da.zeros((1, 1, 4, 8, 16), chunks=(1, 1, 4, 8, 16), dtype=np.uint8)
+        shape = blocked_zarr_writer.BlockedArrayWriter.get_block_shape(
+            arr, target_size_mb=1024, mode="cycle"
+        )
+        self.assertEqual(shape, (4, 8, 16))
+
+    def test_store(self):
+        """store() writes all blocks from a dask array into an output zarr array."""
+        data = np.arange(64, dtype=np.float32).reshape(4, 4, 4)
+        in_arr = da.from_array(data, chunks=(2, 2, 2))
+        out_arr = zarr.zeros((4, 4, 4), dtype=np.float32, store=zarr.MemoryStore())
+        blocked_zarr_writer.BlockedArrayWriter.store(in_arr, out_arr, block_shape=(2, 2, 2))
+        np.testing.assert_array_almost_equal(np.array(out_arr), data)
