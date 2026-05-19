@@ -28,10 +28,13 @@ RUN conda create -y -n destriper python=3.9 && \
         imageio==2.35.1 \
         xarray_multiscale==2.1.0 \
         hyperactive==4.6.0 \
+        jax==0.4.23 \
+        jaxlib==0.4.23 \
         boto3 \
         s3fs && \
     conda clean -afy
 
+# Adding specific versions of jax, otherwise basicpy will fail
 # hyperactive==4.6.0 fixes https://github.com/peng-lab/BaSiCPy/issues/162
 
 # ========================= #
