@@ -1,10 +1,11 @@
 """Runs the destriping algorithm"""
 
+import logging
 import os
+import time
 from datetime import datetime
 from glob import glob
-from pathlib import Path, PurePath
-from time import time
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 import dask
@@ -13,9 +14,13 @@ import tifffile as tif
 from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
                                               Processing, ProcessName)
 from natsort import natsorted
+from schlog import setup_logging
 
-from aind_smartspim_destripe import __version__, zarr_destriper
+from aind_smartspim_destripe import (__pipeline_name__, __title__,
+                                      __version__, zarr_destriper)
 from aind_smartspim_destripe.utils import utils
+
+logger = logging.getLogger(__name__)
 
 
 def get_data_config(
@@ -309,159 +314,211 @@ def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
 def run():
     """Validates parameters and runs the destriper"""
 
-    data_folder = Path(os.path.abspath("../data"))
-    results_folder = Path(os.path.abspath("../results"))
-    scratch_folder = Path(os.path.abspath("../scratch"))
+    process_name = f"{__title__}"
 
-    # It is assumed that these files
-    # will be in the data folder
-    required_input_elements = [
-        f"{data_folder}/acquisition.json",
-        f"{data_folder}/data_description.json",
-    ]
+    setup_logging(
+        model={
+            "pipeline_name": __pipeline_name__,
+            "process_name": process_name,
+            "software_name": __title__,
+            "software_version": __version__,
+        }
+    )
 
-    missing_files = validate_capsule_inputs(required_input_elements)
+    start_time = time.monotonic()
+    dataset_name = None
 
-    print(f"Data in folder: {list(data_folder.glob('*'))}")
+    try:
+        data_folder = Path(os.path.abspath("../data"))
+        results_folder = Path(os.path.abspath("../results"))
+        scratch_folder = Path(os.path.abspath("../scratch"))
 
-    if len(missing_files):
-        raise ValueError(
-            f"We miss the following files in the capsule input: {missing_files}"
-        )
-
-    dask.config.set({"distributed.worker.memory.terminate": False})
-
-    # Make this a parameter
-    bucket_name = "aind-open-data"
-
-    acquisition_path = data_folder.joinpath("acquisition.json")
-    acquisition_dict = utils.read_json_as_dict(acquisition_path)
-
-    data_description_path = data_folder.joinpath("data_description.json")
-    data_description_dict = utils.read_json_as_dict(data_description_path)
-
-    if not len(acquisition_dict):
-        raise ValueError(
-            f"Not able to read acquisition metadata from {acquisition_path}"
-        )
-
-    if not len(data_description_dict):
-        raise ValueError(
-            f"Not able to read data description metadata from {data_description_path}"
-        )
-
-    voxel_resolution = get_resolution(acquisition_dict)
-
-    derivatives_path = data_folder.joinpath("derivatives")
-
-    print(f"Derivatives path data: {list(derivatives_path.glob('*'))}")
-
-    channels = None
-    dataset_name = data_description_dict.get("name")
-
-    # Dispatcher generates preprocess_{channel_name}.json files
-    # These are split to instantiate a single machine per channel
-    # Find channel configuration files using multiple patterns
-    channel_config_paths = list(data_folder.glob("preprocess_*.json"))
-
-    if not channel_config_paths:
-        raise FileNotFoundError(
-            "No preprocess_*.json configuration file found in data folder"
-        )
-
-    # The connection is default, so we can pick the first config
-    BASE_PATH = data_folder
-    if Path(channel_config_paths[0]).suffix == ".json":
-        BASE_PATH = f"s3://{bucket_name}/"
-
-    if utils.is_s3_path(str(BASE_PATH)):
-        prefix = f"{dataset_name}/SPIM"
-        BASE_PATH = f"{BASE_PATH}{prefix}"
-
-        channel_config = utils.read_json_as_dict(channel_config_paths[0])
-        channel_to_process = channel_config.get('channel')
-
-        if not channel_to_process:
-            raise ValueError(f"Please, provide a channel to process. Config: {channel_config_paths[0]}")
-
-        channels = [
-            i
-            for i in utils.list_s3_folders(bucket=bucket_name, prefix=prefix)
-            if str(channel_to_process) in i
-        ]
-    else:
-        BASE_PATH = Path(BASE_PATH)
-        channels = [
-            folder.name
-            for folder in list(BASE_PATH.glob("Ex_*_Em_*"))
-            if os.path.isdir(folder)
+        # It is assumed that these files
+        # will be in the data folder
+        required_input_elements = [
+            f"{data_folder}/acquisition.json",
+            f"{data_folder}/data_description.json",
         ]
 
-    laser_tiles_path = data_folder.joinpath("laser_tiles.json")
+        missing_files = validate_capsule_inputs(required_input_elements)
 
-    if not laser_tiles_path.exists():
-        raise FileNotFoundError(f"Path {laser_tiles_path} does not exist!")
+        print(f"Data in folder: {list(data_folder.glob('*'))}")
 
-    laser_tiles = utils.read_json_as_dict(str(laser_tiles_path))
-
-    print(f"Laser tiles: {laser_tiles}")
-
-    if len(channels):
-
-        for channel_name in channels:
-            estimated_channel_flats = natsorted(
-                list(data_folder.glob(f"estimated_flat_laser_{channel_name}*.tif"))
+        if len(missing_files):
+            raise ValueError(
+                f"We miss the following files in the capsule input: {missing_files}"
             )
 
-            if not len(estimated_channel_flats):
-                raise FileNotFoundError(
-                    f"Error while retrieving flats from the data folder for channel {channel_name}"
+        dask.config.set({"distributed.worker.memory.terminate": False})
+
+        # Make this a parameter
+        bucket_name = "aind-open-data"
+
+        acquisition_path = data_folder.joinpath("acquisition.json")
+        acquisition_dict = utils.read_json_as_dict(acquisition_path)
+
+        data_description_path = data_folder.joinpath("data_description.json")
+        data_description_dict = utils.read_json_as_dict(data_description_path)
+
+        if not len(acquisition_dict):
+            raise ValueError(
+                f"Not able to read acquisition metadata from {acquisition_path}"
+            )
+
+        if not len(data_description_dict):
+            raise ValueError(
+                f"Not able to read data description metadata from {data_description_path}"
+            )
+
+        voxel_resolution = get_resolution(acquisition_dict)
+
+        derivatives_path = data_folder.joinpath("derivatives")
+
+        print(f"Derivatives path data: {list(derivatives_path.glob('*'))}")
+
+        channels = None
+        dataset_name = data_description_dict.get("name")
+
+        # Dispatcher generates preprocess_{channel_name}.json files
+        # These are split to instantiate a single machine per channel
+        # Find channel configuration files using multiple patterns
+        channel_config_paths = list(data_folder.glob("preprocess_*.json"))
+
+        if not channel_config_paths:
+            raise FileNotFoundError(
+                "No preprocess_*.json configuration file found in data folder"
+            )
+
+        # The connection is default, so we can pick the first config
+        BASE_PATH = data_folder
+        if Path(channel_config_paths[0]).suffix == ".json":
+            BASE_PATH = f"s3://{bucket_name}/"
+
+        if utils.is_s3_path(str(BASE_PATH)):
+            prefix = f"{dataset_name}/SPIM"
+            BASE_PATH = f"{BASE_PATH}{prefix}"
+
+            channel_config = utils.read_json_as_dict(channel_config_paths[0])
+            channel_to_process = channel_config.get('channel')
+
+            if not channel_to_process:
+                raise ValueError(f"Please, provide a channel to process. Config: {channel_config_paths[0]}")
+
+            channels = [
+                i
+                for i in utils.list_s3_folders(bucket=bucket_name, prefix=prefix)
+                if str(channel_to_process) in i
+            ]
+        else:
+            BASE_PATH = Path(BASE_PATH)
+            channels = [
+                folder.name
+                for folder in list(BASE_PATH.glob("Ex_*_Em_*"))
+                if os.path.isdir(folder)
+            ]
+
+        laser_tiles_path = data_folder.joinpath("laser_tiles.json")
+
+        if not laser_tiles_path.exists():
+            raise FileNotFoundError(f"Path {laser_tiles_path} does not exist!")
+
+        laser_tiles = utils.read_json_as_dict(str(laser_tiles_path))
+
+        print(f"Laser tiles: {laser_tiles}")
+
+        logger.info(
+            "Destriping started",
+            extra={
+                "event_type": "stage_start",
+                "dataset_name": dataset_name,
+                "data_folder": str(data_folder),
+                "results_folder": str(results_folder),
+                "derivatives_path": str(derivatives_path),
+                "base_path": str(BASE_PATH),
+                "channels": channels,
+                "voxel_resolution": voxel_resolution,
+            },
+        )
+
+        if len(channels):
+
+            for channel_name in channels:
+                estimated_channel_flats = natsorted(
+                    list(data_folder.glob(f"estimated_flat_laser_{channel_name}*.tif"))
                 )
 
-            parameters = {
-                "input_path": f"{BASE_PATH}/{channel_name}",
-                "output_path": str(results_folder),
-                "no_cells_config": {
-                    "wavelet": "db3",
-                    "level": None,
-                    "sigma": 128,
-                    "max_threshold": 12,
-                },
-                "cells_config": {
-                    "wavelet": "db3",
-                    "level": None,
-                    "sigma": 64,
-                    "max_threshold": 3,
-                },
-                "retrospective": True,  # Default behavior
-            }
+                if not len(estimated_channel_flats):
+                    raise FileNotFoundError(
+                        f"Error while retrieving flats from the data folder for channel {channel_name}"
+                    )
 
-            destriping_start_time = time()
+                parameters = {
+                    "input_path": f"{BASE_PATH}/{channel_name}",
+                    "output_path": str(results_folder),
+                    "no_cells_config": {
+                        "wavelet": "db3",
+                        "level": None,
+                        "sigma": 128,
+                        "max_threshold": 12,
+                    },
+                    "cells_config": {
+                        "wavelet": "db3",
+                        "level": None,
+                        "sigma": 64,
+                        "max_threshold": 3,
+                    },
+                    "retrospective": True,  # Default behavior
+                }
 
-            zarr_destriper.destripe_channel(
-                zarr_dataset_path=BASE_PATH,
-                channel_name=channel_name,
-                results_folder=results_folder,
-                derivatives_path=derivatives_path,
-                xyz_resolution=voxel_resolution,
-                estimated_channel_flats=estimated_channel_flats,
-                laser_tiles=laser_tiles,
-                parameters=parameters,
-            )
+                destriping_start_time = time.time()
 
-            destriping_end_time = time()
+                zarr_destriper.destripe_channel(
+                    zarr_dataset_path=BASE_PATH,
+                    channel_name=channel_name,
+                    results_folder=results_folder,
+                    derivatives_path=derivatives_path,
+                    xyz_resolution=voxel_resolution,
+                    estimated_channel_flats=estimated_channel_flats,
+                    laser_tiles=laser_tiles,
+                    parameters=parameters,
+                )
 
-            generate_data_processing(
-                channel_name=channel_name,
-                destripe_version=__version__,
-                destripe_config=parameters,
-                start_time=destriping_start_time,
-                end_time=destriping_end_time,
-                output_directory=results_folder,
-            )
+                destriping_end_time = time.time()
 
-    else:
-        print(f"No channels to process in {BASE_PATH}")
+                generate_data_processing(
+                    channel_name=channel_name,
+                    destripe_version=__version__,
+                    destripe_config=parameters,
+                    start_time=destriping_start_time,
+                    end_time=destriping_end_time,
+                    output_directory=results_folder,
+                )
+
+        else:
+            print(f"No channels to process in {BASE_PATH}")
+
+        duration_seconds = round(time.monotonic() - start_time, 3)
+        logger.info(
+            "Destriping completed",
+            extra={
+                "event_type": "stage_complete",
+                "dataset_name": dataset_name,
+                "duration_seconds": duration_seconds,
+            },
+        )
+
+    except Exception:
+        duration_seconds = round(time.monotonic() - start_time, 3)
+        logger.error(
+            "Destriping failed",
+            exc_info=True,
+            extra={
+                "event_type": "stage_failure",
+                "dataset_name": dataset_name,
+                "duration_seconds": duration_seconds,
+            },
+        )
+        raise
 
 
 if __name__ == "__main__":

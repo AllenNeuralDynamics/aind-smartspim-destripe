@@ -138,40 +138,23 @@ def stop_child_process(process: multiprocessing.Process):
 
 def create_logger(output_log_path: str) -> logging.Logger:
     """
-    Creates a logger that generates
-    output logs to a specific path.
+    Returns the module logger.
+
+    Logging is configured globally via schlog's setup_logging()
+    in the entry point, so this just returns a plain logger handle
+    without touching the root logger configuration.
 
     Parameters
     ------------
     output_log_path: PathLike
-        Path where the log is going
-        to be stored
+        Unused. Kept for backwards compatibility with callers.
 
     Returns
     -----------
     logging.Logger
-        Created logger pointing to
-        the file path.
+        The module logger.
     """
-    CURR_DATE_TIME = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    LOGS_FILE = f"{output_log_path}/destripe_log_{CURR_DATE_TIME}.log"
-
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s - %(levelname)s : %(message)s",
-        datefmt="%Y-%m-%d %H:%M",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(LOGS_FILE, "a"),
-        ],
-        force=True,
-    )
-
-    logging.disable("DEBUG")
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.DEBUG)
-
-    return logger
+    return logging.getLogger(__name__)
 
 
 def get_size(bytes, suffix: str = "B") -> str:
