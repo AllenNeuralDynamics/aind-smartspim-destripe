@@ -369,9 +369,9 @@ def run():
 
                 if parameters.get("retrospective"):
                     note_shadow_correction = """The flats were computed from the data \
-            with basicpy, these were applied with the destriping algorithm \
-            and with the current dark from the microscope.
-            """
+                    with basicpy, these were applied with the destriping algorithm \
+                    and with the current dark from the microscope.
+                    """
 
                 channel_start_time = datetime.now(timezone.utc)
                 resource_monitor = utils.ResourceMonitor(interval_seconds=2.0).start()
