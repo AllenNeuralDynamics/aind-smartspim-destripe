@@ -1,6 +1,7 @@
 """Test module for utils"""
 
 import os
+import platform
 import shutil
 import sys
 import tempfile
@@ -11,7 +12,37 @@ from unittest.mock import MagicMock, mock_open, patch
 
 sys.path.append("../")
 
-from aind_smartspim_destripe.utils.utils import (create_folder, get_cpu_limit,
+
+# ---------------------------------------------------------------------------
+# Stub optional heavy dependencies that may not be installed in all envs.
+# These must be in sys.modules BEFORE utils.py is imported so that top-level
+# imports inside utils.py succeed.
+# ---------------------------------------------------------------------------
+def _setup_missing_modules():
+    global AIND_DATA_SCHEMA_AVAILABLE
+    AIND_DATA_SCHEMA_AVAILABLE = True
+    for _mod in (
+        "aind_data_schema",
+        "aind_data_schema.core",
+        "aind_data_schema.core.processing",
+        "aind_data_schema.components",
+        "aind_data_schema.components.identifiers",
+        "aind_data_schema_models",
+        "aind_data_schema_models.units",
+    ):
+        try:
+            __import__(_mod)
+        except ImportError:
+            sys.modules.setdefault(_mod, MagicMock())
+            AIND_DATA_SCHEMA_AVAILABLE = False
+
+
+AIND_DATA_SCHEMA_AVAILABLE = True
+
+_setup_missing_modules()
+
+from aind_smartspim_destripe.utils.utils import (ResourceMonitor, create_folder,
+                                                 generate_processing, get_cpu_limit,
                                                  get_memory_limit_bytes, get_size,
                                                  is_s3_path, list_s3_files,
                                                  list_s3_folders, profile_resources,
@@ -159,6 +190,47 @@ class TestUtilities(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             result = get_memory_limit_bytes()
         self.assertEqual(result, 8 * 1024**3)
+
+    @unittest.skipUnless(AIND_DATA_SCHEMA_AVAILABLE, "aind_data_schema not installed")
+    def test_generate_processing(self):
+        """
+        Tests that we generate the processing manifest
+        """
+        generate_processing(
+            data_processes=[],
+            dest_processing=self.temp_folder,
+            pipeline_name="SmartSPIM Pipeline",
+            pipeline_version="1.0",
+            pipeline_url="https://github.com/AllenNeuralDynamics/aind-smartspim-pipeline",
+        )
+
+        processing_path = os.path.join(self.temp_folder, "processing.json")
+
+        self.assertTrue(os.path.exists(processing_path))
+
+    @unittest.skipUnless(AIND_DATA_SCHEMA_AVAILABLE, "aind_data_schema not installed")
+    def test_resource_monitor(self):
+        """
+        Tests that the resource monitor collects CPU/RAM samples and
+        produces a valid ResourceUsage record.
+        """
+        monitor = ResourceMonitor(interval_seconds=0.05)
+        monitor.start()
+        try:
+            time.sleep(0.2)
+        finally:
+            monitor.stop()
+
+        resources = monitor.to_resource_usage(cpu_cores=4)
+
+        self.assertEqual(resources.os, platform.system())
+        self.assertEqual(resources.architecture, platform.machine())
+        self.assertEqual(resources.cpu_cores, 4)
+        self.assertGreater(len(resources.cpu_usage), 0)
+        self.assertGreater(len(resources.ram_usage), 0)
+        for sample in resources.cpu_usage + resources.ram_usage:
+            self.assertGreaterEqual(sample.usage, 0)
+            self.assertLessEqual(sample.usage, 100)
 
     @classmethod
     def tearDownClass(cls) -> None:

@@ -10,7 +10,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Create conda environment and install dependencies
-RUN conda create -y -n destriper python=3.9 && \
+RUN conda create -y -n destriper python=3.10 && \
     conda run -n destriper pip install --no-cache-dir \
         git+https://github.com/AllenNeuralDynamics/aind-large-scale-prediction.git@unpinned-versions \
         numpy==1.26.4 \
@@ -20,7 +20,8 @@ RUN conda create -y -n destriper python=3.9 && \
         PyWavelets==1.6.0 \
         tqdm==4.66.5 \
         pathlib2 \
-        aind-data-schema==1.0.0 \
+        aind-data-schema==2.8.0 \
+        "aind-data-schema-models>=5.7.1,<6" \
         matplotlib==3.9.2 \
         psutil==6.0.0 \
         BaSiCPy==1.1.0 \
