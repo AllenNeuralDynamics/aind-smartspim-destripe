@@ -374,7 +374,7 @@ def run():
                     """
 
                 channel_start_time = datetime.now(timezone.utc)
-                resource_monitor = utils.ResourceMonitor(interval_seconds=2.0).start()
+                resource_monitor = utils.ResourceMonitor(interval_seconds=30.0).start()
 
                 zarr_destriper.destripe_channel(
                     zarr_dataset_path=BASE_PATH,
