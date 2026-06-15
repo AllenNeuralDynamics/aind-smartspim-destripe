@@ -55,7 +55,7 @@ run_capsule.py
 - **Entry point**: `code/run_capsule.py`
 - **Channels**: discovered from `Ex_*_Em_*` folders or S3 paths
 - **Output format**: OME-Zarr with a 3-level multiscale pyramid (factor-2 downsampling per spatial axis)
-- **Metadata**: `image_destriping_<channel>_processing.json` (AIND processing schema)
+- **Metadata**: `processing.json` (AIND processing schema)
 
 ---
 
@@ -68,6 +68,24 @@ pip install -e .
 # Development install (linters + tests)
 pip install -e .[dev]
 ```
+
+---
+
+## Requirements
+
+| Package | Version |
+|---------|---------|
+| Python | 3.10 |
+| numpy | 1.26.4 |
+| scipy | 1.13.1 |
+| scikit-image | 0.24.0 |
+| BaSiCPy | 1.1.0 |
+| jax / jaxlib | 0.4.23 |
+| PyWavelets | 1.6.0 |
+| natsort | 8.4.0 |
+| aind-data-schema | 2.8.0 |
+| aind-data-schema-models | >=5.7.1,<6 |
+| boto3 / s3fs | latest |
 
 ---
 

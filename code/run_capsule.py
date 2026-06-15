@@ -3,7 +3,7 @@
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from glob import glob
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -11,13 +11,15 @@ from typing import List, Optional, Tuple
 import dask
 import numpy as np
 import tifffile as tif
-from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
-                                              Processing, ProcessName)
+from aind_data_schema.components.identifiers import Code
+from aind_data_schema.core.processing import (DataProcess, ProcessName,
+                                                ProcessStage)
 from natsort import natsorted
 from schlog import setup_logging
 
-from aind_smartspim_destripe import (__pipeline_name__, __title__,
-                                      __version__, zarr_destriper)
+from aind_smartspim_destripe import (__maintainers__, __pipeline_name__,
+                                      __pipeline_version__, __title__,
+                                      __url__, __version__, zarr_destriper)
 from aind_smartspim_destripe.utils import utils
 
 logger = logging.getLogger(__name__)
@@ -67,118 +69,6 @@ def get_data_config(
     smartspim_dataset = data_description_dict["name"]
 
     return derivatives_dict, smartspim_dataset
-
-
-def generate_data_processing(
-    channel_name: str,
-    destripe_version: str,
-    destripe_config: dict,
-    start_time: datetime,
-    end_time: datetime,
-    output_directory: str,
-):
-    """
-    Generates a destriping data processing
-    for the processed channel.
-
-    Paramters
-    -----------
-    channel_name: str
-        SmartSPIM channel to process
-
-    destripe_version: str
-        Destriping version
-
-    input_path: str
-        Path where the images are located
-
-    output_path: str
-        Path where the images are stored
-
-    destripe_config: dict
-        Dictionary with the configuration
-        for the destriping algorithm
-
-    note_shadow_correction: str
-        Shadow correction notes
-
-    start_time: datetime
-        Time the destriping process
-        started
-
-    end_time: datetime
-        Time the destriping process
-        ended
-
-    output_directory: str
-        Path where we want to store the
-        processing manifest
-
-    """
-    output_directory = os.path.abspath(output_directory)
-
-    if not os.path.exists(output_directory):
-        raise FileNotFoundError(
-            f"Please, check that this folder exists {output_directory}"
-        )
-
-    input_path = destripe_config["input_path"]
-    output_path = destripe_config["output_path"]
-
-    note_shadow_correction = "Applying the flats that come from the microscope"
-
-    if destripe_config.get("retrospective"):
-        note_shadow_correction = """The flats were computed from the data \
-            with basicpy, these were applied with the destriping algorithm \
-            and with the current dark from the microscope.
-            """
-
-    process_params = {
-        k: v for k, v in destripe_config.items() if k not in ("input_path", "output_path")
-    }
-
-    pipeline_process = PipelineProcess(
-        data_processes=[
-            DataProcess(
-                name=ProcessName.IMAGE_DESTRIPING,
-                software_version=destripe_version,
-                start_date_time=start_time,
-                end_date_time=end_time,
-                input_location=str(input_path),
-                output_location=str(output_path),
-                code_version=destripe_version,
-                code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
-                parameters=process_params,
-                notes=f"Destriping for channel {channel_name} in zarr format",
-            ),
-            DataProcess(
-                name=ProcessName.IMAGE_FLAT_FIELD_CORRECTION,
-                software_version=destripe_version,
-                start_date_time=start_time,
-                end_date_time=end_time,
-                input_location=str(input_path),
-                output_location=str(output_path),
-                code_version=destripe_version,
-                code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
-                parameters={},
-                notes=note_shadow_correction,
-            ),
-        ],
-        processor_full_name="Camilo Laiton",
-        pipeline_url="https://github.com/AllenNeuralDynamics/aind-smartspim-pipeline",
-        pipeline_version="3.0.0",
-    )
-
-    processing = Processing(
-        processing_pipeline=pipeline_process,
-        notes="This processing only contains metadata about destriping \
-        and needs to be compiled with other steps at the end",
-    )
-
-    with open(
-        f"{output_directory}/image_destriping_{channel_name}_processing.json", "w"
-    ) as f:
-        f.write(processing.model_dump_json(indent=3))
 
 
 def get_microscope_flats(
@@ -440,6 +330,9 @@ def run():
             },
         )
 
+        data_processes = []
+        cpu_cores = utils.get_cpu_limit()
+
         if len(channels):
 
             for channel_name in channels:
@@ -470,7 +363,18 @@ def run():
                     "retrospective": True,  # Default behavior
                 }
 
-                destriping_start_time = time.time()
+                note_shadow_correction = (
+                    "Applying the flats that come from the microscope"
+                )
+
+                if parameters.get("retrospective"):
+                    note_shadow_correction = """The flats were computed from the data \
+                    with basicpy, these were applied with the destriping algorithm \
+                    and with the current dark from the microscope.
+                    """
+
+                channel_start_time = datetime.now(timezone.utc)
+                resource_monitor = utils.ResourceMonitor(interval_seconds=30.0).start()
 
                 zarr_destriper.destripe_channel(
                     zarr_dataset_path=BASE_PATH,
@@ -483,19 +387,74 @@ def run():
                     parameters=parameters,
                 )
 
-                destriping_end_time = time.time()
+                resource_monitor.stop()
+                channel_end_time = datetime.now(timezone.utc)
 
-                generate_data_processing(
-                    channel_name=channel_name,
-                    destripe_version=__version__,
-                    destripe_config=parameters,
-                    start_time=destriping_start_time,
-                    end_time=destriping_end_time,
-                    output_directory=results_folder,
+                channel_resources = resource_monitor.to_resource_usage(
+                    cpu_cores=cpu_cores
+                )
+                channel_code = Code(
+                    url=__url__, name=__title__, version=__version__
+                )
+                channel_duration_seconds = (
+                    channel_end_time - channel_start_time
+                ).total_seconds()
+
+                data_processes.append(
+                    DataProcess(
+                        process_type=ProcessName.IMAGE_DESTRIPING,
+                        name=f"Image destriping - {channel_name}",
+                        stage=ProcessStage.PROCESSING,
+                        code=channel_code,
+                        experimenters=__maintainers__,
+                        pipeline_name=__pipeline_name__,
+                        start_date_time=channel_start_time,
+                        end_date_time=channel_end_time,
+                        output_path=str(results_folder),
+                        output_parameters={
+                            k: v
+                            for k, v in parameters.items()
+                            if k not in ("input_path", "output_path")
+                        }
+                        | {
+                            "input_location": str(parameters["input_path"]),
+                            "duration_seconds": channel_duration_seconds,
+                        },
+                        resources=channel_resources,
+                        notes=f"Destriping for channel {channel_name} in zarr format",
+                    )
+                )
+
+                data_processes.append(
+                    DataProcess(
+                        process_type=ProcessName.IMAGE_FLAT_FIELD_CORRECTION,
+                        name=f"Flatfield correction - {channel_name}",
+                        stage=ProcessStage.PROCESSING,
+                        code=channel_code,
+                        experimenters=__maintainers__,
+                        pipeline_name=__pipeline_name__,
+                        start_date_time=channel_start_time,
+                        end_date_time=channel_end_time,
+                        output_path=str(results_folder),
+                        output_parameters={
+                            "input_location": str(parameters["input_path"]),
+                            "duration_seconds": channel_duration_seconds,
+                        },
+                        resources=channel_resources,
+                        notes=note_shadow_correction,
+                    )
                 )
 
         else:
             print(f"No channels to process in {BASE_PATH}")
+
+        utils.generate_processing(
+            data_processes=data_processes,
+            dest_processing=results_folder,
+            pipeline_name=__pipeline_name__,
+            pipeline_version=__pipeline_version__,
+            pipeline_url="https://github.com/AllenNeuralDynamics/aind-smartspim-pipeline",
+        )
 
         duration_seconds = round(time.monotonic() - start_time, 3)
         logger.info(
