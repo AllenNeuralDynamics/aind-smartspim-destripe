@@ -146,7 +146,7 @@ def create_logger(output_log_path: str) -> logging.Logger:
     """
     Returns the module logger.
 
-    Logging is configured globally via schlog's setup_logging()
+    Logging is configured globally via logschema's setup_logging()
     in the entry point, so this just returns a plain logger handle
     without touching the root logger configuration.
 

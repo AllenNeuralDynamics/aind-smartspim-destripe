@@ -15,7 +15,7 @@ from aind_data_schema.components.identifiers import Code
 from aind_data_schema.core.processing import (DataProcess, ProcessName,
                                                 ProcessStage)
 from natsort import natsorted
-from schlog import setup_logging
+from log_schema import setup_logging
 
 from aind_smartspim_destripe import (__maintainers__, __pipeline_name__,
                                       __pipeline_version__, __title__,
