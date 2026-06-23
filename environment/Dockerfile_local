@@ -33,7 +33,7 @@ RUN conda create -y -n destriper python=3.10 && \
         jaxlib==0.4.23 \
         log-schema==0.2.10.dev1 \
         boto3 \
-        s3fs && \
+        s3fs==2026.6.0 && \
     conda clean -afy
 
 # Adding specific versions of jax, otherwise basicpy will fail
