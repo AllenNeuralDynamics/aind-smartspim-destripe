@@ -991,10 +991,10 @@ def destripe_zarr(
     # The device we will use and pinning memory to speed things up
     device = None
 
-    pin_memory = True
+    pin_memory = device is not None
     if device is not None:
-        pin_memory = False
         multiprocessing.set_start_method("spawn", force=True)
+        logger.debug(f"Setting start method to spawn for device {device} and pin_memory {pin_memory}")
 
     # Getting overlap prediction chunksize
     overlap_prediction_chunksize = (
