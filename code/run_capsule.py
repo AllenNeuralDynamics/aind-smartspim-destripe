@@ -21,7 +21,7 @@ from log_schema import setup_logging
 from aind_smartspim_destripe import (__maintainers__, __pipeline_name__,
                                       __pipeline_version__, __title__,
                                       __url__, __version__, zarr_destriper)
-from aind_smartspim_destripe.utils import utils
+from aind_smartspim_destripe.utils import metadata_compat, utils
 
 logger = logging.getLogger(__name__)
 
@@ -158,23 +158,6 @@ def get_microscope_flats(
 
     return flatfield, metadata_json
 
-
-def get_resolution(acquisition_config):
-    # Grabbing a tile with metadata from acquisition - we assume all dataset
-    # was acquired with the same resolution
-    tile_coord_transforms = acquisition_config["tiles"][0]["coordinate_transformations"]
-
-    scale_transform = [
-        x["scale"] for x in tile_coord_transforms if x["type"] == "scale"
-    ][0]
-
-    x = float(scale_transform[0])
-    y = float(scale_transform[1])
-    z = float(scale_transform[2])
-
-    return x, y, z
-
-
 def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
     """
     Validates input elemts for a capsule in
@@ -261,7 +244,7 @@ def run():
                 f"Not able to read data description metadata from {data_description_path}"
             )
 
-        voxel_resolution = get_resolution(acquisition_dict)
+        voxel_resolution = metadata_compat.get_voxel_resolution(acquisition_dict)
 
         derivatives_path = data_folder.joinpath("derivatives")
 
