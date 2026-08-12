@@ -2,6 +2,7 @@
 
 import logging
 import os
+import shutil
 import time
 from datetime import datetime, timezone
 from glob import glob
@@ -455,6 +456,13 @@ def run():
             pipeline_version=__pipeline_version__,
             pipeline_url="https://github.com/AllenNeuralDynamics/aind-smartspim-pipeline",
         )
+
+        processing_json = results_folder / "processing.json"
+        for channel_name in channels:
+            shutil.copy(
+                str(processing_json),
+                str(results_folder / f"image_destriping_{channel_name}_processing.json"),
+            )
 
         duration_seconds = round(time.monotonic() - start_time, 3)
         logger.info(

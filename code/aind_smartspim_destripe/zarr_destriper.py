@@ -22,7 +22,6 @@ from aind_large_scale_prediction.generator.dataset import create_data_loader
 from aind_large_scale_prediction.generator.utils import (
     recover_global_position, unpad_global_coords)
 from aind_large_scale_prediction.io import ImageReaderFactory
-from dask.distributed import Client, LocalCluster
 from natsort import natsorted
 from numcodecs import blosc
 from ome_zarr.format import CurrentFormat
@@ -678,23 +677,10 @@ def compute_multiscale(
     output_zarr,
     zarr_group,
     scale_factor,
-    n_workers,
     voxel_size,
     image_name,
     n_levels=3,
-    threads_per_worker=1,
 ):
-
-    # Instantiating local cluster for parallel writing
-    cluster = LocalCluster(
-        n_workers=n_workers,
-        threads_per_worker=threads_per_worker,
-        processes=True,
-        memory_limit="auto",
-    )
-
-    client = Client(cluster)
-    #     performance_report_path = f"/results/report.html"
 
     start_time = time()
     pyramid_group = output_zarr
@@ -788,10 +774,6 @@ def compute_multiscale(
     print(f"Time to write the dataset: {end_time - start_time}")
     print(f"Written pyramid: {written_pyramid}")
 
-    try:
-        client.shutdown()
-    except Exception as e:
-        print(f"Handling error {e} when closing client.")
 
 
 def producer(
@@ -1009,10 +991,10 @@ def destripe_zarr(
     # The device we will use and pinning memory to speed things up
     device = None
 
-    pin_memory = True
+    pin_memory = device is not None
     if device is not None:
-        pin_memory = False
         multiprocessing.set_start_method("spawn", force=True)
+        logger.debug(f"Setting start method to spawn for device {device} and pin_memory {pin_memory}")
 
     # Getting overlap prediction chunksize
     overlap_prediction_chunksize = (
@@ -1181,7 +1163,6 @@ def destripe_zarr(
         output_zarr=output_zarr,
         zarr_group=new_channel_group,
         scale_factor=scale_factor,
-        n_workers=co_cpus,
         voxel_size=[
             xyz_resolution[-1],
             xyz_resolution[-2],
@@ -1189,7 +1170,6 @@ def destripe_zarr(
         ],
         image_name=dataset_name,
         n_levels=3,
-        threads_per_worker=1,
     )
     multiscale_time_end = time()
 
