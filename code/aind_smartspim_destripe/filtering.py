@@ -139,7 +139,7 @@ def gaussian_filter(shape, sigma):
 def log_space_fft_filtering(
     input_image: np.array,
     wavelet: Optional[str] = "db3",
-    level: Optional[int] = 0,
+    level: Optional[int] = None,
     sigma: Optional[int] = 64,
     max_threshold: Optional[int] = 4,
 ):
@@ -173,6 +173,13 @@ def log_space_fft_filtering(
         streaks.
     """
     input_image_log = np.log(1.0 + input_image)
+    # pywt reads level=0 as "no decomposition at all". There are no detail bands, the loop below
+    # never runs, and this function returns its input unchanged, silently and in no time. pystripe,
+    # which this filter follows, guards the same case (`if level == 0: wavedec(img_log, wavelet)`)
+    # and means by it "use the maximum useful level". Keep that meaning, so a caller passing 0 gets
+    # a filter rather than an identity.
+    if not level:
+        level = None
     coeffs = pywt.wavedec2(input_image_log, wavelet=wavelet, level=level)
     approx = coeffs[0]
     detail = coeffs[1:]

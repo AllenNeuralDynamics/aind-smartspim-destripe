@@ -168,6 +168,35 @@ class SmartspimFiltering(unittest.TestCase):
         self.assertEqual(result.shape, input_image.shape)
         self.assertTrue(np.all(result > 0))  # Ensure no negative values in the result
 
+    def test_log_space_fft_filtering_removes_stripes_with_defaults(self):
+        """
+        The default parameters must actually filter.
+
+        Guards the case where `level` reaches pywt as 0, which it reads as "no decomposition". The
+        detail bands come back empty, the filtering loop never runs, and the function returns its
+        input. That failure is silent, since the output has the right shape, the right sign and the
+        right dtype, which is all the tests above check. So it is asserted here on the one property
+        that tells a filter apart from an identity.
+        """
+        rows, cols = 128, 128
+        rng = np.random.default_rng(0)
+        background = np.tile(np.linspace(50, 200, cols), (rows, 1))
+        # Horizontal streaks: constant along the columns, varying row to row.
+        streaks = np.tile(rng.normal(0, 15, rows)[:, None], (1, cols))
+        striped = (background + streaks).astype(np.float32)
+
+        filtered = filtering.log_space_fft_filtering(striped)
+
+        def streak_power(image):
+            """Variance of the row means: what a horizontal streak puts there, and little else."""
+            return float(np.var(image.mean(axis=1)))
+
+        self.assertLess(
+            streak_power(filtered),
+            0.5 * streak_power(striped),
+            "the default parameters left the streaks untouched",
+        )
+
     def test_log_space_fft_filtering_small_image(self):
         """
         Testing filtering with a very small image
