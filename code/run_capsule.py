@@ -279,9 +279,14 @@ def run():
                 "No preprocess_*.json configuration file found in data folder"
             )
 
+        # Extract channels from preprocess_<channel>.json
+        channel_names = [
+            path.stem.removeprefix("preprocess_")
+            for path in channel_config_paths
+        ]
+
         # Getting bucket name
         bucket_name = args.bucket_name
-        # The connection is default, so we can pick the first config
         base_path = data_folder
 
         if bucket_name:
@@ -294,7 +299,7 @@ def run():
                     bucket=bucket_name,
                     prefix=prefix,
                 )
-                if str(channel_to_process) in folder
+                if any(folder.endswith(channel) for channel in channel_names)
             ]
         else:
             channels = [
