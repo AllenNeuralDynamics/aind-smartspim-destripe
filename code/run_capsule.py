@@ -207,6 +207,15 @@ def run():
         results_folder = Path(os.path.abspath("../results"))
         scratch_folder = Path(os.path.abspath("../scratch"))
 
+        logger.info(
+            "Destriping started",
+            extra={
+                "event_type": "stage_start",
+                "data_folder": str(data_folder),
+                "results_folder": str(results_folder),
+            },
+        )
+
         # It is assumed that these files
         # will be in the data folder
         required_input_elements = [
@@ -216,7 +225,7 @@ def run():
 
         missing_files = validate_capsule_inputs(required_input_elements)
 
-        print(f"Data in folder: {list(data_folder.glob('*'))}")
+        logger.debug(f"Data in folder: {list(data_folder.glob('*'))}")
 
         if len(missing_files):
             raise ValueError(
@@ -248,7 +257,7 @@ def run():
 
         derivatives_path = data_folder.joinpath("derivatives")
 
-        print(f"Derivatives path data: {list(derivatives_path.glob('*'))}")
+        logger.debug(f"Derivatives path data: {list(derivatives_path.glob('*'))}")
 
         channels = None
         dataset_name = data_description_dict.get("name")
@@ -298,15 +307,12 @@ def run():
 
         laser_tiles = utils.read_json_as_dict(str(laser_tiles_path))
 
-        print(f"Laser tiles: {laser_tiles}")
+        logger.debug(f"Laser tiles: {laser_tiles}")
 
         logger.info(
-            "Destriping started",
+            f"Destriping configuration resolved for dataset {dataset_name}",
             extra={
-                "event_type": "stage_start",
                 "dataset_name": dataset_name,
-                "data_folder": str(data_folder),
-                "results_folder": str(results_folder),
                 "derivatives_path": str(derivatives_path),
                 "base_path": str(BASE_PATH),
                 "channels": channels,
@@ -430,7 +436,7 @@ def run():
                 )
 
         else:
-            print(f"No channels to process in {BASE_PATH}")
+            logger.warning(f"No channels to process in {BASE_PATH}")
 
         utils.generate_processing(
             data_processes=data_processes,

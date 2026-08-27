@@ -19,12 +19,9 @@ from aind_large_scale_prediction.types import PathLike
 from .filtering import filter_stripes
 from .readers import *
 
-LOG_FMT = "%(asctime)s %(message)s"
-LOG_DATE_FMT = "%Y-%m-%d %H:%M"
-
-logging.basicConfig(format=LOG_FMT, datefmt=LOG_DATE_FMT)
+# Logging is configured by log_schema.setup_logging at capsule start;
+# configuring it at import time here would override the JSON formatter.
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 SUPPORTED_OUTPUT_EXTENSIONS = [".tif", ".tiff", ".png"]
 
