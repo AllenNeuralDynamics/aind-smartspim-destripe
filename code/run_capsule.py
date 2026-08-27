@@ -1,5 +1,6 @@
 """Runs the destriping algorithm"""
 
+import argparse
 import logging
 import os
 import shutil
@@ -184,9 +185,27 @@ def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
 
     return missing_inputs
 
+def _parse_args() -> argparse.Namespace:
+    """
+    Parses the arguments to the capsule
+    """
+    ap = argparse.ArgumentParser(
+        prog="run_capsule.py",
+        description="SmartSPIM pipeline preprocessing.",
+    )
+    ap.add_argument(
+        "bucket_name",
+        nargs="?",
+        default=None,
+        metavar="BUCKET_NAME",
+        help="S3 bucket name.",
+    )
+    return ap.parse_args()
+
 
 def run():
     """Validates parameters and runs the destriper"""
+    args = _parse_args()
 
     process_name = f"{__title__}"
 
@@ -219,23 +238,20 @@ def run():
         # It is assumed that these files
         # will be in the data folder
         required_input_elements = [
-            f"{data_folder}/acquisition.json",
-            f"{data_folder}/data_description.json",
+            data_folder / "acquisition.json",
+            data_folder / "data_description.json",
         ]
 
         missing_files = validate_capsule_inputs(required_input_elements)
 
         logger.debug(f"Data in folder: {list(data_folder.glob('*'))}")
 
-        if len(missing_files):
+        if missing_files:
             raise ValueError(
                 f"We miss the following files in the capsule input: {missing_files}"
             )
 
         dask.config.set({"distributed.worker.memory.terminate": False})
-
-        # Make this a parameter
-        bucket_name = "aind-open-data"
 
         acquisition_path = data_folder.joinpath("acquisition.json")
         acquisition_dict = utils.read_json_as_dict(acquisition_path)
@@ -272,32 +288,33 @@ def run():
                 "No preprocess_*.json configuration file found in data folder"
             )
 
-        # The connection is default, so we can pick the first config
-        BASE_PATH = data_folder
-        if Path(channel_config_paths[0]).suffix == ".json":
-            BASE_PATH = f"s3://{bucket_name}/"
+        # Extract channels from preprocess_<channel>.json
+        channel_names = [
+            path.stem.removeprefix("preprocess_")
+            for path in channel_config_paths
+        ]
 
-        if utils.is_s3_path(str(BASE_PATH)):
+        # Getting bucket name
+        bucket_name = args.bucket_name
+        base_path = data_folder
+
+        if bucket_name:
             prefix = f"{dataset_name}/SPIM"
-            BASE_PATH = f"{BASE_PATH}{prefix}"
-
-            channel_config = utils.read_json_as_dict(channel_config_paths[0])
-            channel_to_process = channel_config.get('channel')
-
-            if not channel_to_process:
-                raise ValueError(f"Please, provide a channel to process. Config: {channel_config_paths[0]}")
+            base_path = f"s3://{bucket_name}/{prefix}"
 
             channels = [
-                i
-                for i in utils.list_s3_folders(bucket=bucket_name, prefix=prefix)
-                if str(channel_to_process) in i
+                folder
+                for folder in utils.list_s3_folders(
+                    bucket=bucket_name,
+                    prefix=prefix,
+                )
+                if any(folder.endswith(channel) for channel in channel_names)
             ]
         else:
-            BASE_PATH = Path(BASE_PATH)
             channels = [
                 folder.name
-                for folder in list(BASE_PATH.glob("Ex_*_Em_*"))
-                if os.path.isdir(folder)
+                for folder in base_path.glob("Ex_*_Em_*")
+                if folder.is_dir()
             ]
 
         laser_tiles_path = data_folder.joinpath("laser_tiles.json")
@@ -314,7 +331,7 @@ def run():
             extra={
                 "dataset_name": dataset_name,
                 "derivatives_path": str(derivatives_path),
-                "base_path": str(BASE_PATH),
+                "base_path": str(base_path),
                 "channels": channels,
                 "voxel_resolution": voxel_resolution,
             },
@@ -336,7 +353,7 @@ def run():
                     )
 
                 parameters = {
-                    "input_path": f"{BASE_PATH}/{channel_name}",
+                    "input_path": f"{base_path}/{channel_name}",
                     "output_path": str(results_folder),
                     "no_cells_config": {
                         "wavelet": "db3",
@@ -367,7 +384,7 @@ def run():
                 resource_monitor = utils.ResourceMonitor(interval_seconds=30.0).start()
 
                 zarr_destriper.destripe_channel(
-                    zarr_dataset_path=BASE_PATH,
+                    zarr_dataset_path=base_path,
                     channel_name=channel_name,
                     results_folder=results_folder,
                     derivatives_path=derivatives_path,
@@ -436,7 +453,7 @@ def run():
                 )
 
         else:
-            logger.warning(f"No channels to process in {BASE_PATH}")
+            logger.warning(f"No channels to process in {base_path}")
 
         utils.generate_processing(
             data_processes=data_processes,
