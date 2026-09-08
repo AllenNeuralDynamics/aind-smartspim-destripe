@@ -32,6 +32,8 @@ from . import filtering as fl
 from .blocked_zarr_writer import BlockedArrayWriter
 from .utils import utils
 
+logger = logging.getLogger(__name__)
+
 
 def read_json_as_dict(filepath: str) -> dict:
     """
@@ -640,7 +642,7 @@ def write_ome_ngff_metadata(
     metadata: dict
         Extra metadata to write in the OME-NGFF metadata
     """
-    print("WRITING METADATA")
+    logger.info("Writing OME-Zarr metadata")
     if metadata is None:
         metadata = {}
     fmt = CurrentFormat()
@@ -771,8 +773,8 @@ def compute_multiscale(
         written_pyramid.append(array_to_write)
 
     end_time = time()
-    print(f"Time to write the dataset: {end_time - start_time}")
-    print(f"Written pyramid: {written_pyramid}")
+    logger.info(f"Time to write the dataset: {end_time - start_time}")
+    logger.debug(f"Written pyramid: {written_pyramid}")
 
 
 
@@ -816,13 +818,13 @@ def producer(
             },
             block=True,
         )
-        logger.info(f"[+] Worker {worker_pid} setting block {i}")
+        logger.debug(f"[+] Worker {worker_pid} setting block {i}")
 
     for i in range(n_consumers):
         producer_queue.put(None, block=True)
 
     # zarr_dataset.lazy_data.shape
-    logger.info(f"[+] Worker {worker_pid} -> Producer finished producing data.")
+    logger.debug(f"[+] Worker {worker_pid} -> Producer finished producing data.")
 
 
 def consumer(
@@ -852,7 +854,7 @@ def consumer(
     """
     logger = worker_params["logger"]
     worker_pid = os.getpid()
-    logger.info(f"Starting consumer worker -> {worker_pid}")
+    logger.debug(f"Starting consumer worker -> {worker_pid}")
 
     # Setting initial wait so all processes could be created
     # And producer can start generating data
@@ -865,10 +867,10 @@ def consumer(
         streamed_dict = queue.get(block=True)
 
         if streamed_dict is None:
-            logger.info(f"[-] Worker {worker_pid} -> Turn off signal received...")
+            logger.debug(f"[-] Worker {worker_pid} -> Turn off signal received...")
             break
 
-        logger.info(
+        logger.debug(
             f"[-] Worker {worker_pid} -> Consuming {streamed_dict['i']} - {streamed_dict['data'].shape} - Super chunk val: {zarr_dataset.curr_super_chunk_pos.value} - internal slice sum: {total_samples}"
         )
 
@@ -885,7 +887,7 @@ def consumer(
             logger=logger,
         )
 
-    logger.info(f"[-] Worker {worker_pid} -> Consumer finished consuming data.")
+    logger.debug(f"[-] Worker {worker_pid} -> Consumer finished consuming data.")
 
 
 def destripe_zarr(
