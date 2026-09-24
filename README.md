@@ -1,5 +1,7 @@
 # aind-smartspim-destripe
 
+![support](https://img.shields.io/badge/support-supported-brightgreen)
+
 Removes horizontal stripe artifacts from lightsheet microscopy images acquired with the SmartSPIM microscope. The pipeline uses a **log-space Fast Fourier Transform (FFT)** filter combined with flatfield correction and is designed to operate on large-scale Zarr datasets.
 
 Developed and maintained by the [Allen Institute](https://www.alleninstitute.org/what-we-do/brain-science/research/allen-institute-for-neural-dynamics/).

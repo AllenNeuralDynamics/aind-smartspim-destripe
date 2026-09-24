@@ -11,16 +11,15 @@ sys.path.append("../")
 
 from unittest.mock import MagicMock, mock_open, patch
 
-import numpy as np
-
-from aind_smartspim_destripe.zarr_destriper import (extract_global_to_local,
-                                                    get_microscope_flats,
-                                                    pad_array_n_d,
-                                                    read_json_as_dict)
+from aind_smartspim_destripe.zarr_destriper import (
+    extract_global_to_local,
+    get_microscope_flats,
+    pad_array_n_d,
+    read_json_as_dict,
+)
 
 
 class TestZarrDestriper(unittest.TestCase):
-
     @patch("builtins.open", new_callable=mock_open, read_data='{"key": "value"}')
     @patch("os.path.exists", return_value=True)
     def test_read_json_as_dict_valid(self, mock_exists, mock_open):
@@ -95,9 +94,7 @@ class TestZarrDestriper(unittest.TestCase):
     @patch("aind_smartspim_destripe.zarr_destriper.tif")
     @patch("aind_smartspim_destripe.zarr_destriper.glob")
     @patch("aind_smartspim_destripe.zarr_destriper.utils.read_json_as_dict")
-    def test_get_microscope_flats_valid(
-        self, mock_read_json, mock_glob, mock_tif, mock_os_exists
-    ):
+    def test_get_microscope_flats_valid(self, mock_read_json, mock_glob, mock_tif, mock_os_exists):
         """get_microscope_flats parses tile_config and loads two hemisphere flatfields."""
         mock_read_json.return_value = {
             "tile_config": {

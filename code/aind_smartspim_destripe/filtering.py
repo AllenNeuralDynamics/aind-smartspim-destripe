@@ -51,9 +51,7 @@ def foreground_fraction(img: np.array, center: float, crossover: float) -> float
     return f
 
 
-def get_foreground_background_mean(
-    img: np.array, threshold_mask: Optional[float] = 0.3
-) -> Tuple:
+def get_foreground_background_mean(img: np.array, threshold_mask: Optional[float] = 0.3) -> Tuple:
     """
     Gets the foreground and background
     from an image. This needs to be improved
@@ -187,9 +185,7 @@ def log_space_fft_filtering(
         ch_sq = ch**2
         ch_power = np.sqrt(ch_sq)
 
-        otsu_threshold_sqrt = np.sqrt(
-            filters.threshold_otsu(ch_sq)
-        )  # threshold_otsu(ch_sq)
+        otsu_threshold_sqrt = np.sqrt(filters.threshold_otsu(ch_sq))  # threshold_otsu(ch_sq)
         threshold = min(max_threshold, otsu_threshold_sqrt)
 
         mask = ch_power > threshold
@@ -325,16 +321,12 @@ def get_hemisphere_flatfield(
     x_config = tile_config.get(x_folder)
 
     if x_config is None:
-        raise KeyError(
-            f"Please, check the tile config while trying to reach: {x_folder}"
-        )
+        raise KeyError(f"Please, check the tile config while trying to reach: {x_folder}")
 
     brain_side = tile_config[x_folder].get(y_folder)
 
     if brain_side is None:
-        raise KeyError(
-            f"Please, check the tile config while trying to reach: {y_folder}"
-        )
+        raise KeyError(f"Please, check the tile config while trying to reach: {y_folder}")
 
     return flatfields[brain_side]
 

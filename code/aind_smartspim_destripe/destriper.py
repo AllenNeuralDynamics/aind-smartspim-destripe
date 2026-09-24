@@ -224,9 +224,7 @@ def _read_filter_save(input_dict: dict):
     read_filter_save(**input_dict)
 
 
-def _find_all_images(
-    search_path: PathLike, input_path: PathLike, output_path: PathLike
-):
+def _find_all_images(search_path: PathLike, input_path: PathLike, output_path: PathLike):
     """Find all images with a supported file extension within a directory and all its subdirectories
 
     Parameters

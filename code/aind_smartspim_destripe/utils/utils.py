@@ -19,9 +19,12 @@ import boto3
 import matplotlib.pyplot as plt
 import psutil
 from aind_data_schema.components.identifiers import Code
-from aind_data_schema.core.processing import (DataProcess, Processing,
-                                                ResourceTimestamped,
-                                                ResourceUsage)
+from aind_data_schema.core.processing import (
+    DataProcess,
+    Processing,
+    ResourceTimestamped,
+    ResourceUsage,
+)
 from aind_data_schema_models.units import MemoryUnit
 from natsort import natsorted
 
@@ -219,7 +222,7 @@ def get_cpu_limit():
 
         container_cpus = cfs_quota_us // cfs_period_us
 
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         container_cpus = 0
 
     # For physical machine, the `cfs_quota_us` could be '-1'
@@ -302,9 +305,7 @@ def print_system_information(logger: logging.Logger):
     logger.info(f"SLURM ID: {slurm_id}")
     logger.info(f"SLURM GPUs: {os.environ.get('SLURM_JOB_GPUS')}")
     logger.info(f"SLURM CPUs: {os.environ.get('SLURM_JOB_CPUS_PER_NODE')}")
-    logger.info(
-        f"SLURM variables {[( k, v ) for k, v in os.environ.items() if 'SLURM' in k]}"
-    )
+    logger.info(f"SLURM variables {[(k, v) for k, v in os.environ.items() if 'SLURM' in k]}")
 
     logger.info(f"{sep} System Information {sep}")
     uname = platform.uname()
@@ -319,9 +320,7 @@ def print_system_information(logger: logging.Logger):
     logger.info(f"{sep} Boot Time {sep}")
     boot_time_timestamp = psutil.boot_time()
     bt = datetime.fromtimestamp(boot_time_timestamp)
-    logger.info(
-        f"Boot Time: {bt.year}/{bt.month}/{bt.day} {bt.hour}:{bt.minute}:{bt.second}"
-    )
+    logger.info(f"Boot Time: {bt.year}/{bt.month}/{bt.day} {bt.hour}:{bt.minute}:{bt.second}")
 
     # CPU info
     logger.info(f"{sep} CPU Info {sep}")
@@ -405,8 +404,7 @@ def read_image_directory_structure(folder_dir: str, channel_regex: str) -> dict:
         [
             folder_dir.joinpath(folder)
             for folder in os.listdir(folder_dir)
-            if os.path.isdir(folder_dir.joinpath(folder))
-            and re.search(channel_regex, str(folder))
+            if os.path.isdir(folder_dir.joinpath(folder)) and re.search(channel_regex, str(folder))
         ]
     )
 
@@ -428,14 +426,10 @@ def read_image_directory_structure(folder_dir: str, channel_regex: str) -> dict:
                 directory_structure[channel_paths[channel_idx]][col] = {}
 
                 for row in rows:
-                    possible_row = (
-                        channel_paths[channel_idx].joinpath(col).joinpath(row)
-                    )
+                    possible_row = channel_paths[channel_idx].joinpath(col).joinpath(row)
 
                     if os.path.isdir(possible_row):
-                        directory_structure[channel_paths[channel_idx]][col][
-                            row
-                        ] = images
+                        directory_structure[channel_paths[channel_idx]][col][row] = images
 
     return directory_structure
 

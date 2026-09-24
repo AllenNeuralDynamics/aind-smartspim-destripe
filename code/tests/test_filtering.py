@@ -56,9 +56,7 @@ class SmartspimFiltering(unittest.TestCase):
         background_mean = background.mean() if background.size else 0.0
 
         # Call the function
-        fg_mean, bg_mean, mask = filtering.get_foreground_background_mean(
-            img, threshold_mask
-        )
+        fg_mean, bg_mean, mask = filtering.get_foreground_background_mean(img, threshold_mask)
 
         # Validate results
         self.assertAlmostEqual(fg_mean, foreground_mean)
@@ -74,9 +72,7 @@ class SmartspimFiltering(unittest.TestCase):
         img = np.array([])
         threshold_mask = 0.3
 
-        fg_mean, bg_mean, mask = filtering.get_foreground_background_mean(
-            img, threshold_mask
-        )
+        fg_mean, bg_mean, mask = filtering.get_foreground_background_mean(img, threshold_mask)
 
         self.assertEqual(fg_mean, 0.0)
         self.assertEqual(bg_mean, 0.0)
@@ -90,9 +86,7 @@ class SmartspimFiltering(unittest.TestCase):
         img = np.array([10, 20, 30, 40, 50])
         threshold_mask = 1.0  # No values will be above this threshold
 
-        fg_mean, bg_mean, mask = filtering.get_foreground_background_mean(
-            img, threshold_mask
-        )
+        fg_mean, bg_mean, mask = filtering.get_foreground_background_mean(img, threshold_mask)
 
         self.assertEqual(fg_mean, 0.0)  # No foreground
         self.assertEqual(bg_mean, img.mean())  # All values are background
@@ -105,9 +99,7 @@ class SmartspimFiltering(unittest.TestCase):
         img = np.array([400, 420, 430, 440, 460])
         threshold_mask = 0.0
 
-        fg_mean, bg_mean, mask = filtering.get_foreground_background_mean(
-            img, threshold_mask
-        )
+        fg_mean, bg_mean, mask = filtering.get_foreground_background_mean(img, threshold_mask)
 
         self.assertEqual(fg_mean, img.mean())
         self.assertEqual(bg_mean, 0.0)
@@ -187,9 +179,7 @@ class SmartspimFiltering(unittest.TestCase):
         normalized = filtering.normalize_image(images)
         self.assertGreaterEqual(normalized.min(), 1.0, "Minimum value should be >= 1.0")
         self.assertLessEqual(normalized.max(), 2.0, "Maximum value should be <= 2.0")
-        self.assertEqual(
-            normalized.shape, (2, 2, 2), "Output shape should match input list shape"
-        )
+        self.assertEqual(normalized.shape, (2, 2, 2), "Output shape should match input list shape")
 
     def test_invert_image(self):
         """
@@ -198,9 +188,7 @@ class SmartspimFiltering(unittest.TestCase):
         image = np.array([[0, 1], [2, 3]])
         inverted = filtering.invert_image(image)
         expected = np.array([[3, 2], [1, 0]])
-        np.testing.assert_array_equal(
-            inverted, expected, "Inverted image values incorrect"
-        )
+        np.testing.assert_array_equal(inverted, expected, "Inverted image values incorrect")
 
     def test_get_hemisphere_flatfield(self):
         """
@@ -211,14 +199,10 @@ class SmartspimFiltering(unittest.TestCase):
         tile_config = {"X1": {"Y1": 0, "Y2": 1}, "X2": {"Y1": 0, "Y2": 1}}
         flatfields = [np.array([[1, 1], [1, 1]]), np.array([[2, 2], [2, 2]])]
         flatfield = filtering.get_hemisphere_flatfield("X1_Y1", tile_config, flatfields)
-        np.testing.assert_array_equal(
-            flatfield, flatfields[0], "Incorrect flatfield returned"
-        )
+        np.testing.assert_array_equal(flatfield, flatfields[0], "Incorrect flatfield returned")
 
         flatfield = filtering.get_hemisphere_flatfield("X2_Y2", tile_config, flatfields)
-        np.testing.assert_array_equal(
-            flatfield, flatfields[1], "Incorrect flatfield returned"
-        )
+        np.testing.assert_array_equal(flatfield, flatfields[1], "Incorrect flatfield returned")
 
         with self.assertRaises(KeyError):
             filtering.get_hemisphere_flatfield("X3_Y1", tile_config, flatfields)
@@ -232,9 +216,7 @@ class SmartspimFiltering(unittest.TestCase):
         darkfield = np.array([[[1, 1], [1, 1]]])
         corrected = filtering.flatfield_correction(image_tiles, flatfield, darkfield)
         expected = np.array([[[4, 9], [14, 19]]], dtype=np.uint16)
-        np.testing.assert_array_equal(
-            corrected, expected, "Flatfield correction incorrect"
-        )
+        np.testing.assert_array_equal(corrected, expected, "Flatfield correction incorrect")
 
         with self.assertRaises(ValueError):
             filtering.flatfield_correction(image_tiles, flatfield, darkfield[:-1])
@@ -261,9 +243,7 @@ class SmartspimFiltering(unittest.TestCase):
             cells_config,
             shadow_correction=None,
         )
-        np.testing.assert_array_equal(
-            filtered_image, image, "Filtering output mismatch"
-        )
+        np.testing.assert_array_equal(filtered_image, image, "Filtering output mismatch")
 
         shadow_correction = {
             "retrospective": True,
@@ -282,9 +262,7 @@ class SmartspimFiltering(unittest.TestCase):
 
     @patch("aind_smartspim_destripe.filtering.log_space_fft_filtering")
     @patch("aind_smartspim_destripe.filtering.get_foreground_background_mean")
-    def test_filter_stripes_cells_branch(
-        self, mock_get_fg, mock_log_fft
-    ):
+    def test_filter_stripes_cells_branch(self, mock_get_fg, mock_log_fft):
         """filter_stripes uses cells_config when fore_mean > back_mean and > microscope_high_int."""
         image = np.ones((10, 10), dtype=np.float32)
         no_cells_config = {"wavelet": "db3", "sigma": 128, "max_threshold": 12}
@@ -303,9 +281,7 @@ class SmartspimFiltering(unittest.TestCase):
 
     @patch("aind_smartspim_destripe.filtering.log_space_fft_filtering")
     @patch("aind_smartspim_destripe.filtering.get_foreground_background_mean")
-    def test_filter_stripes_no_cells_branch(
-        self, mock_get_fg, mock_log_fft
-    ):
+    def test_filter_stripes_no_cells_branch(self, mock_get_fg, mock_log_fft):
         """filter_stripes uses no_cells_config when fore_mean does not exceed threshold."""
         image = np.ones((10, 10), dtype=np.float32)
         no_cells_config = {"wavelet": "db3", "sigma": 128, "max_threshold": 12}

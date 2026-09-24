@@ -5,7 +5,6 @@ import platform
 import shutil
 import sys
 import tempfile
-import threading
 import time
 import unittest
 from unittest.mock import MagicMock, mock_open, patch
@@ -41,13 +40,20 @@ AIND_DATA_SCHEMA_AVAILABLE = True
 
 _setup_missing_modules()
 
-from aind_smartspim_destripe.utils.utils import (ResourceMonitor, create_folder,
-                                                 generate_processing, get_cpu_limit,
-                                                 get_memory_limit_bytes, get_size,
-                                                 is_s3_path, list_s3_files,
-                                                 list_s3_folders, profile_resources,
-                                                 read_json_as_dict, split_s3_path,
-                                                 stop_child_process)
+from aind_smartspim_destripe.utils.utils import (
+    ResourceMonitor,
+    create_folder,
+    generate_processing,
+    get_cpu_limit,
+    get_memory_limit_bytes,
+    get_size,
+    is_s3_path,
+    list_s3_files,
+    list_s3_folders,
+    read_json_as_dict,
+    split_s3_path,
+    stop_child_process,
+)
 
 
 class TestUtilities(unittest.TestCase):

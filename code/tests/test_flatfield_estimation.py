@@ -7,13 +7,14 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 
 sys.path.append("../")
-from aind_smartspim_destripe.flatfield_estimation import (shading_correction,
-                                                          slide_flat_estimation,
-                                                          unify_fields)
+from aind_smartspim_destripe.flatfield_estimation import (
+    shading_correction,
+    slide_flat_estimation,
+    unify_fields,
+)
 
 
 class TestShadingCorrectionFunctions(unittest.TestCase):
-
     @patch("aind_smartspim_destripe.flatfield_estimation.BaSiC")
     def test_shading_correction(self, mock_basic):
         """shading_correction returns flatfield, darkfield, baseline from BaSiC fit"""
@@ -75,9 +76,7 @@ class TestShadingCorrectionFunctions(unittest.TestCase):
         darkfields = [np.full((4, 4), float(v)) for v in [1, 3, 2]]
         baselines = [np.full((4,), float(v)) for v in [1, 3, 2]]
 
-        flatfield, darkfield, baseline = unify_fields(
-            flatfields, darkfields, baselines, mode="mip"
-        )
+        flatfield, darkfield, baseline = unify_fields(flatfields, darkfields, baselines, mode="mip")
         np.testing.assert_allclose(flatfield, np.full((4, 4), 3.0, dtype=np.float32))
         np.testing.assert_allclose(darkfield, np.full((4, 4), 1.0, dtype=np.float32))
         self.assertEqual(flatfield.dtype, np.float32)

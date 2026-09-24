@@ -14,15 +14,19 @@ import dask
 import numpy as np
 import tifffile as tif
 from aind_data_schema.components.identifiers import Code
-from aind_data_schema.core.processing import (DataProcess, ProcessName,
-                                                ProcessStage)
-from natsort import natsorted
-from log_schema import setup_logging
-
-from aind_smartspim_destripe import (__maintainers__, __pipeline_name__,
-                                      __pipeline_version__, __title__,
-                                      __url__, __version__, zarr_destriper)
+from aind_data_schema.core.processing import DataProcess, ProcessName, ProcessStage
+from aind_smartspim_destripe import (
+    __maintainers__,
+    __pipeline_name__,
+    __pipeline_version__,
+    __title__,
+    __url__,
+    __version__,
+    zarr_destriper,
+)
 from aind_smartspim_destripe.utils import metadata_compat, utils
+from log_schema import setup_logging
+from natsort import natsorted
 
 logger = logging.getLogger(__name__)
 
@@ -61,21 +65,15 @@ def get_data_config(
     # Doing this because of Code Ocean, ideally we would have
     # a single dataset in the pipeline
 
-    derivatives_dict = utils.read_json_as_dict(
-        f"{data_folder}/{processing_manifest_path}"
-    )
-    data_description_dict = utils.read_json_as_dict(
-        f"{data_folder}/{data_description_path}"
-    )
+    derivatives_dict = utils.read_json_as_dict(f"{data_folder}/{processing_manifest_path}")
+    data_description_dict = utils.read_json_as_dict(f"{data_folder}/{data_description_path}")
 
     smartspim_dataset = data_description_dict["name"]
 
     return derivatives_dict, smartspim_dataset
 
 
-def get_microscope_flats(
-    channel_name: str, derivatives_folder: str
-) -> Tuple[np.ndarray]:
+def get_microscope_flats(channel_name: str, derivatives_folder: str) -> Tuple[np.ndarray]:
     """
     Gets the microscope flats
 
@@ -145,19 +143,16 @@ def get_microscope_flats(
         # metadata.json to know which tile is in which laser
         flatfield = [
             tif.imread(g)
-            for g in natsorted(
-                glob(f"{derivatives_folder}/FlatReal{curr_emision_wave}_*.tif")
-            )
+            for g in natsorted(glob(f"{derivatives_folder}/FlatReal{curr_emision_wave}_*.tif"))
             if os.path.exists(g)
         ]
 
         # reading flatfields, we should have 2, one per brain hemisphere
         if len(flatfield) != 2:
-            raise ValueError(
-                f"Error while reading the microscope flatfields: {flatfield}"
-            )
+            raise ValueError(f"Error while reading the microscope flatfields: {flatfield}")
 
     return flatfield, metadata_json
+
 
 def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
     """
@@ -184,6 +179,7 @@ def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
             missing_inputs.append(str(required_input_element))
 
     return missing_inputs
+
 
 def _parse_args() -> argparse.Namespace:
     """
@@ -247,9 +243,7 @@ def run():
         logger.debug(f"Data in folder: {list(data_folder.glob('*'))}")
 
         if missing_files:
-            raise ValueError(
-                f"We miss the following files in the capsule input: {missing_files}"
-            )
+            raise ValueError(f"We miss the following files in the capsule input: {missing_files}")
 
         dask.config.set({"distributed.worker.memory.terminate": False})
 
@@ -260,9 +254,7 @@ def run():
         data_description_dict = utils.read_json_as_dict(data_description_path)
 
         if not len(acquisition_dict):
-            raise ValueError(
-                f"Not able to read acquisition metadata from {acquisition_path}"
-            )
+            raise ValueError(f"Not able to read acquisition metadata from {acquisition_path}")
 
         if not len(data_description_dict):
             raise ValueError(
@@ -284,15 +276,10 @@ def run():
         channel_config_paths = list(data_folder.glob("preprocess_*.json"))
 
         if not channel_config_paths:
-            raise FileNotFoundError(
-                "No preprocess_*.json configuration file found in data folder"
-            )
+            raise FileNotFoundError("No preprocess_*.json configuration file found in data folder")
 
         # Extract channels from preprocess_<channel>.json
-        channel_names = [
-            path.stem.removeprefix("preprocess_")
-            for path in channel_config_paths
-        ]
+        channel_names = [path.stem.removeprefix("preprocess_") for path in channel_config_paths]
 
         # Getting bucket name
         bucket_name = args.bucket_name
@@ -311,11 +298,7 @@ def run():
                 if any(folder.endswith(channel) for channel in channel_names)
             ]
         else:
-            channels = [
-                folder.name
-                for folder in base_path.glob("Ex_*_Em_*")
-                if folder.is_dir()
-            ]
+            channels = [folder.name for folder in base_path.glob("Ex_*_Em_*") if folder.is_dir()]
 
         laser_tiles_path = data_folder.joinpath("laser_tiles.json")
 
@@ -341,7 +324,6 @@ def run():
         cpu_cores = utils.get_cpu_limit()
 
         if len(channels):
-
             for channel_name in channels:
                 estimated_channel_flats = natsorted(
                     list(data_folder.glob(f"estimated_flat_laser_{channel_name}*.tif"))
@@ -370,9 +352,7 @@ def run():
                     "retrospective": True,  # Default behavior
                 }
 
-                note_shadow_correction = (
-                    "Applying the flats that come from the microscope"
-                )
+                note_shadow_correction = "Applying the flats that come from the microscope"
 
                 if parameters.get("retrospective"):
                     note_shadow_correction = """The flats were computed from the data \
@@ -397,15 +377,9 @@ def run():
                 resource_monitor.stop()
                 channel_end_time = datetime.now(timezone.utc)
 
-                channel_resources = resource_monitor.to_resource_usage(
-                    cpu_cores=cpu_cores
-                )
-                channel_code = Code(
-                    url=__url__, name=__title__, version=__version__
-                )
-                channel_duration_seconds = (
-                    channel_end_time - channel_start_time
-                ).total_seconds()
+                channel_resources = resource_monitor.to_resource_usage(cpu_cores=cpu_cores)
+                channel_code = Code(url=__url__, name=__title__, version=__version__)
+                channel_duration_seconds = (channel_end_time - channel_start_time).total_seconds()
 
                 data_processes.append(
                     DataProcess(

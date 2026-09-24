@@ -19,8 +19,7 @@ import xarray_multiscale
 import zarr
 from aind_large_scale_prediction._shared.types import ArrayLike, PathLike
 from aind_large_scale_prediction.generator.dataset import create_data_loader
-from aind_large_scale_prediction.generator.utils import (
-    recover_global_position, unpad_global_coords)
+from aind_large_scale_prediction.generator.utils import recover_global_position, unpad_global_coords
 from aind_large_scale_prediction.io import ImageReaderFactory
 from natsort import natsorted
 from numcodecs import blosc
@@ -68,9 +67,7 @@ def read_json_as_dict(filepath: str) -> dict:
     return dictionary
 
 
-def get_microscope_flats(
-    channel_name: str, derivatives_folder: str
-) -> Tuple[np.ndarray]:
+def get_microscope_flats(channel_name: str, derivatives_folder: str) -> Tuple[np.ndarray]:
     """
     Gets the microscope flats
 
@@ -140,17 +137,13 @@ def get_microscope_flats(
         # metadata.json to know which tile is in which laser
         flatfield = [
             tif.imread(g)
-            for g in natsorted(
-                glob(f"{derivatives_folder}/FlatReal{curr_emision_wave}_*.tif")
-            )
+            for g in natsorted(glob(f"{derivatives_folder}/FlatReal{curr_emision_wave}_*.tif"))
             if os.path.exists(g)
         ]
 
         # reading flatfields, we should have 2, one per brain hemisphere
         if len(flatfield) != 2:
-            raise ValueError(
-                f"Error while reading the microscope flatfields: {flatfield}"
-            )
+            raise ValueError(f"Error while reading the microscope flatfields: {flatfield}")
 
     return flatfield, metadata_json
 
@@ -234,9 +227,7 @@ def extract_global_to_local(
     ]
 
     # Mapping to the local coordinate system of the chunk
-    picked_global_ids_with_cells[..., :3] = (
-        picked_global_ids_with_cells[..., :3] - start_pos - pad
-    )
+    picked_global_ids_with_cells[..., :3] = picked_global_ids_with_cells[..., :3] - start_pos - pad
 
     # Validating seeds are within block boundaries
     picked_global_ids_with_cells = picked_global_ids_with_cells[
@@ -305,9 +296,7 @@ def execute_worker(
             unpadded_local_slice[idx] = slice(
                 unpadded_local_slice[idx].start, unpadded_local_slice[idx].stop - rest
             )
-            output_slices[idx] = slice(
-                output_slices[idx].start, output_destriped_zarr.shape[idx]
-            )
+            output_slices[idx] = slice(output_slices[idx].start, output_destriped_zarr.shape[idx])
 
     output_slices = tuple(output_slices)
     unpadded_local_slice = tuple(unpadded_local_slice)
@@ -350,8 +339,7 @@ def helper_schedule_jobs(picked_blocks, pool, logger):
 
     # Assigning blocks to execution workers
     jobs = [
-        pool.apply_async(_execute_worker, args=(picked_block,))
-        for picked_block in picked_blocks
+        pool.apply_async(_execute_worker, args=(picked_block,)) for picked_block in picked_blocks
     ]
 
     logger.info(f"Dispatcher PID {os.getpid()} dispatching {len(jobs)} jobs")
@@ -484,9 +472,7 @@ def _compute_scales(
                 ]
             )
             if translation is not None:
-                transforms[-1].append(
-                    {"type": "translation", "translation": translation}
-                )
+                transforms[-1].append({"type": "translation", "translation": translation})
             lastz = int(np.ceil(lastz / scale_factor[0]))
             lasty = int(np.ceil(lasty / scale_factor[1]))
             lastx = int(np.ceil(lastx / scale_factor[2]))
@@ -504,9 +490,7 @@ def _compute_scales(
     return transforms, chunk_sizes
 
 
-def _get_axes_5d(
-    time_unit: str = "millisecond", space_unit: str = "micrometer"
-) -> List[Dict]:
+def _get_axes_5d(time_unit: str = "millisecond", space_unit: str = "micrometer") -> List[Dict]:
     """Generate the list of axes.
 
     Parameters
@@ -662,9 +646,7 @@ def write_ome_ngff_metadata(
     coordinate_transformations, chunk_opts = _compute_scales(
         n_lvls, scale_factors, voxel_size, output_chunks, arr.shape, None
     )
-    fmt.validate_coordinate_transformations(
-        arr.ndim, n_lvls, coordinate_transformations
-    )
+    fmt.validate_coordinate_transformations(arr.ndim, n_lvls, coordinate_transformations)
     # Setting coordinate transfomations
     datasets = [{"path": str(i)} for i in range(n_lvls)]
     if coordinate_transformations is not None:
@@ -731,23 +713,21 @@ def compute_multiscale(
     # Writing zarr and performance report
     #     with performance_report(filename=performance_report_path):
     for i in range(1, n_levels):
-
         if i != 1:
             previous_scale = da.from_zarr(pyramid_group, output_zarr.chunks)
 
         # Writing zarr
         block_shape = list(
             BlockedArrayWriter.get_block_shape(
-                arr=previous_scale, target_size_mb=12800  # 51200,
+                arr=previous_scale,
+                target_size_mb=12800,  # 51200,
             )
         )
 
         # Formatting to 5D block shape
         block_shape = ([1] * (5 - len(block_shape))) + block_shape
 
-        new_scale_factor = (
-            [1] * (len(previous_scale.shape) - len(scale_factor))
-        ) + scale_factor
+        new_scale_factor = ([1] * (len(previous_scale.shape) - len(scale_factor))) + scale_factor
 
         previous_scale_pyramid = compute_pyramid(
             data=previous_scale,
@@ -775,7 +755,6 @@ def compute_multiscale(
     end_time = time()
     logger.info(f"Time to write the dataset: {end_time - start_time}")
     logger.debug(f"Written pyramid: {written_pyramid}")
-
 
 
 def producer(
@@ -808,7 +787,6 @@ def producer(
 
     logger.info(f"Starting producer queue: {worker_pid}")
     for i, sample in enumerate(zarr_data_loader):
-
         producer_queue.put(
             {
                 "i": i,
@@ -962,7 +940,7 @@ def destripe_zarr(
         raise ValueError(f"Provided workers {n_workers} > current workers {co_cpus}")
 
     logger = utils.create_logger(output_log_path=results_folder)
-    logger.info(f"{20*'='} Large-Scale Zarr Destriping {20*'='}")
+    logger.info(f"{20 * '='} Large-Scale Zarr Destriping {20 * '='}")
 
     logger.info(f"Processing dataset {dataset_path}")
 
@@ -996,7 +974,9 @@ def destripe_zarr(
     pin_memory = device is not None
     if device is not None:
         multiprocessing.set_start_method("spawn", force=True)
-        logger.debug(f"Setting start method to spawn for device {device} and pin_memory {pin_memory}")
+        logger.debug(
+            f"Setting start method to spawn for device {device} and pin_memory {pin_memory}"
+        )
 
     # Getting overlap prediction chunksize
     overlap_prediction_chunksize = (
@@ -1004,9 +984,7 @@ def destripe_zarr(
         0,
         0,
     )
-    logger.info(
-        f"Overlap size based on cell diameter * 2: {overlap_prediction_chunksize}"
-    )
+    logger.info(f"Overlap size based on cell diameter * 2: {overlap_prediction_chunksize}")
 
     lazy_data = (
         ImageReaderFactory()
@@ -1064,11 +1042,9 @@ def destripe_zarr(
         np.prod(zarr_dataset.prediction_chunksize) * batch_size
     )
     samples_per_iter = n_workers * batch_size
-    logger.info(
-        f"Number of batches: {total_batches} - Samples per iteration: {samples_per_iter}"
-    )
+    logger.info(f"Number of batches: {total_batches} - Samples per iteration: {samples_per_iter}")
 
-    logger.info(f"{20*'='} Starting combination of gradients {20*'='}")
+    logger.info(f"{20 * '='} Starting combination of gradients {20 * '='}")
     start_time = time()
 
     # Setting exec workers to CO CPUs
@@ -1081,7 +1057,6 @@ def destripe_zarr(
     retrospective = False if flatfield is None else True
 
     if os.path.exists(derivatives_path):
-
         # Reading darkfield
         darkfield_path = str(derivatives_path.joinpath("DarkMaster_cropped.tif"))
         logger.info(f"Loading darkfield from path: {darkfield_path}")
@@ -1213,9 +1188,7 @@ def destripe_channel(
     tile_paths = []
     if utils.is_s3_path(str(channel_dataset)):
         bucket_name, prefix = utils.split_s3_path(str(channel_dataset))
-        tile_paths = utils.list_s3_folders(
-            bucket=bucket_name, prefix=prefix, extension=".ome.zarr"
-        )
+        tile_paths = utils.list_s3_folders(bucket=bucket_name, prefix=prefix, extension=".ome.zarr")
 
         tile_paths = [f"{channel_dataset}/{tile_path}" for tile_path in tile_paths]
 
@@ -1225,9 +1198,7 @@ def destripe_channel(
 
     for tile_path in tile_paths:
         tile_path_parsed = PurePath(tile_path)
-        output_folder = destriped_data_folder.joinpath(
-            f"{channel_name}/{tile_path_parsed.name}"
-        )
+        output_folder = destriped_data_folder.joinpath(f"{channel_name}/{tile_path_parsed.name}")
         print(
             f"Processing {tile_path} - writing to: {output_folder} - derivatives: {derivatives_path}"
         )

@@ -12,7 +12,6 @@ from aind_smartspim_destripe import blocked_zarr_writer
 
 
 class TestBlockedArrayWriter(unittest.TestCase):
-
     def test_get_size(self):
         """
         Test getting dataset size
@@ -32,16 +31,12 @@ class TestBlockedArrayWriter(unittest.TestCase):
         itemsize = 1
         target_bytes = 30
         self.assertEqual(
-            blocked_zarr_writer._closer_to_target(
-                shape1, shape2, target_bytes, itemsize
-            ),
+            blocked_zarr_writer._closer_to_target(shape1, shape2, target_bytes, itemsize),
             shape1,
         )
         target_bytes = 60
         self.assertEqual(
-            blocked_zarr_writer._closer_to_target(
-                shape1, shape2, target_bytes, itemsize
-            ),
+            blocked_zarr_writer._closer_to_target(shape1, shape2, target_bytes, itemsize),
             shape2,
         )
 
@@ -58,9 +53,7 @@ class TestBlockedArrayWriter(unittest.TestCase):
         )
         self.assertEqual(result, (4, 4, 4))
         with self.assertRaises(ValueError):
-            blocked_zarr_writer.expand_chunks(
-                (0, 2, 2), data_shape, target_size, itemsize
-            )
+            blocked_zarr_writer.expand_chunks((0, 2, 2), data_shape, target_size, itemsize)
 
     def test_expand_chunks_iso(self):
         """
@@ -75,9 +68,7 @@ class TestBlockedArrayWriter(unittest.TestCase):
         )
         self.assertEqual(result, (4, 4, 4))
         with self.assertRaises(ValueError):
-            blocked_zarr_writer.expand_chunks(
-                (0, 2, 2), data_shape, target_size, itemsize
-            )
+            blocked_zarr_writer.expand_chunks((0, 2, 2), data_shape, target_size, itemsize)
 
     def test_gen_slices(self):
         """
@@ -85,9 +76,7 @@ class TestBlockedArrayWriter(unittest.TestCase):
         """
         arr_shape = (5, 5)
         block_shape = (2, 2)
-        slices = list(
-            blocked_zarr_writer.BlockedArrayWriter.gen_slices(arr_shape, block_shape)
-        )
+        slices = list(blocked_zarr_writer.BlockedArrayWriter.gen_slices(arr_shape, block_shape))
         self.assertEqual(len(slices), 9)  # 3x3 blocks
         self.assertEqual(slices[0], (slice(0, 2), slice(0, 2)))
         self.assertEqual(slices[-1], (slice(4, 5), slice(4, 5)))
@@ -96,9 +85,7 @@ class TestBlockedArrayWriter(unittest.TestCase):
         """gen_slices produces the correct number of blocks for a 3D array."""
         arr_shape = (4, 4, 4)
         block_shape = (2, 2, 2)
-        slices = list(
-            blocked_zarr_writer.BlockedArrayWriter.gen_slices(arr_shape, block_shape)
-        )
+        slices = list(blocked_zarr_writer.BlockedArrayWriter.gen_slices(arr_shape, block_shape))
         self.assertEqual(len(slices), 8)  # 2x2x2 blocks
         self.assertEqual(slices[0], (slice(0, 2), slice(0, 2), slice(0, 2)))
         self.assertEqual(slices[-1], (slice(2, 4), slice(2, 4), slice(2, 4)))
