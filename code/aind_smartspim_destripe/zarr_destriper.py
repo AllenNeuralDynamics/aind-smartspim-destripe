@@ -19,10 +19,8 @@ import xarray_multiscale
 import zarr
 from aind_large_scale_prediction._shared.types import ArrayLike, PathLike
 from aind_large_scale_prediction.generator.dataset import create_data_loader
-from aind_large_scale_prediction.generator.utils import (
-    recover_global_position, unpad_global_coords)
+from aind_large_scale_prediction.generator.utils import recover_global_position, unpad_global_coords
 from aind_large_scale_prediction.io import ImageReaderFactory
-from dask.distributed import Client, LocalCluster
 from natsort import natsorted
 from numcodecs import blosc
 from ome_zarr.format import CurrentFormat
@@ -32,6 +30,8 @@ from ome_zarr.writer import write_multiscales_metadata
 from . import filtering as fl
 from .blocked_zarr_writer import BlockedArrayWriter
 from .utils import utils
+
+logger = logging.getLogger(__name__)
 
 
 def read_json_as_dict(filepath: str) -> dict:
@@ -67,9 +67,7 @@ def read_json_as_dict(filepath: str) -> dict:
     return dictionary
 
 
-def get_microscope_flats(
-    channel_name: str, derivatives_folder: str
-) -> Tuple[np.ndarray]:
+def get_microscope_flats(channel_name: str, derivatives_folder: str) -> Tuple[np.ndarray]:
     """
     Gets the microscope flats
 
@@ -139,17 +137,13 @@ def get_microscope_flats(
         # metadata.json to know which tile is in which laser
         flatfield = [
             tif.imread(g)
-            for g in natsorted(
-                glob(f"{derivatives_folder}/FlatReal{curr_emision_wave}_*.tif")
-            )
+            for g in natsorted(glob(f"{derivatives_folder}/FlatReal{curr_emision_wave}_*.tif"))
             if os.path.exists(g)
         ]
 
         # reading flatfields, we should have 2, one per brain hemisphere
         if len(flatfield) != 2:
-            raise ValueError(
-                f"Error while reading the microscope flatfields: {flatfield}"
-            )
+            raise ValueError(f"Error while reading the microscope flatfields: {flatfield}")
 
     return flatfield, metadata_json
 
@@ -233,9 +227,7 @@ def extract_global_to_local(
     ]
 
     # Mapping to the local coordinate system of the chunk
-    picked_global_ids_with_cells[..., :3] = (
-        picked_global_ids_with_cells[..., :3] - start_pos - pad
-    )
+    picked_global_ids_with_cells[..., :3] = picked_global_ids_with_cells[..., :3] - start_pos - pad
 
     # Validating seeds are within block boundaries
     picked_global_ids_with_cells = picked_global_ids_with_cells[
@@ -304,9 +296,7 @@ def execute_worker(
             unpadded_local_slice[idx] = slice(
                 unpadded_local_slice[idx].start, unpadded_local_slice[idx].stop - rest
             )
-            output_slices[idx] = slice(
-                output_slices[idx].start, output_destriped_zarr.shape[idx]
-            )
+            output_slices[idx] = slice(output_slices[idx].start, output_destriped_zarr.shape[idx])
 
     output_slices = tuple(output_slices)
     unpadded_local_slice = tuple(unpadded_local_slice)
@@ -331,9 +321,8 @@ def execute_worker(
     )
 
     filtered_data_converted = np.clip(filtered_data, 0, 65535).astype(np.uint16)
-    #     filtered_data_converted = (filtered_data_converted / filtered_data.max() * 65535).astype(np.uint16)
 
-    output_destriped_zarr[output_slices] = filtered_data
+    output_destriped_zarr[output_slices] = filtered_data_converted
 
 
 #     return filtered_data_converted, output_slices
@@ -350,8 +339,7 @@ def helper_schedule_jobs(picked_blocks, pool, logger):
 
     # Assigning blocks to execution workers
     jobs = [
-        pool.apply_async(_execute_worker, args=(picked_block,))
-        for picked_block in picked_blocks
+        pool.apply_async(_execute_worker, args=(picked_block,)) for picked_block in picked_blocks
     ]
 
     logger.info(f"Dispatcher PID {os.getpid()} dispatching {len(jobs)} jobs")
@@ -484,9 +472,7 @@ def _compute_scales(
                 ]
             )
             if translation is not None:
-                transforms[-1].append(
-                    {"type": "translation", "translation": translation}
-                )
+                transforms[-1].append({"type": "translation", "translation": translation})
             lastz = int(np.ceil(lastz / scale_factor[0]))
             lasty = int(np.ceil(lasty / scale_factor[1]))
             lastx = int(np.ceil(lastx / scale_factor[2]))
@@ -504,9 +490,7 @@ def _compute_scales(
     return transforms, chunk_sizes
 
 
-def _get_axes_5d(
-    time_unit: str = "millisecond", space_unit: str = "micrometer"
-) -> List[Dict]:
+def _get_axes_5d(time_unit: str = "millisecond", space_unit: str = "micrometer") -> List[Dict]:
     """Generate the list of axes.
 
     Parameters
@@ -642,7 +626,7 @@ def write_ome_ngff_metadata(
     metadata: dict
         Extra metadata to write in the OME-NGFF metadata
     """
-    print("WRITING METADATA")
+    logger.info("Writing OME-Zarr metadata")
     if metadata is None:
         metadata = {}
     fmt = CurrentFormat()
@@ -658,12 +642,11 @@ def write_ome_ngff_metadata(
     )
     group.attrs["omero"] = ome_json
     axes_5d = _get_axes_5d()
+    output_chunks = (1, 1, 64, 128, 128)
     coordinate_transformations, chunk_opts = _compute_scales(
-        n_lvls, scale_factors, voxel_size, arr.chunksize, arr.shape, None
+        n_lvls, scale_factors, voxel_size, output_chunks, arr.shape, None
     )
-    fmt.validate_coordinate_transformations(
-        arr.ndim, n_lvls, coordinate_transformations
-    )
+    fmt.validate_coordinate_transformations(arr.ndim, n_lvls, coordinate_transformations)
     # Setting coordinate transfomations
     datasets = [{"path": str(i)} for i in range(n_lvls)]
     if coordinate_transformations is not None:
@@ -678,23 +661,10 @@ def compute_multiscale(
     output_zarr,
     zarr_group,
     scale_factor,
-    n_workers,
     voxel_size,
     image_name,
     n_levels=3,
-    threads_per_worker=1,
 ):
-
-    # Instantiating local cluster for parallel writing
-    cluster = LocalCluster(
-        n_workers=n_workers,
-        threads_per_worker=threads_per_worker,
-        processes=True,
-        memory_limit="auto",
-    )
-
-    client = Client(cluster)
-    #     performance_report_path = f"/results/report.html"
 
     start_time = time()
     pyramid_group = output_zarr
@@ -743,23 +713,21 @@ def compute_multiscale(
     # Writing zarr and performance report
     #     with performance_report(filename=performance_report_path):
     for i in range(1, n_levels):
-
         if i != 1:
             previous_scale = da.from_zarr(pyramid_group, output_zarr.chunks)
 
         # Writing zarr
         block_shape = list(
             BlockedArrayWriter.get_block_shape(
-                arr=previous_scale, target_size_mb=12800  # 51200,
+                arr=previous_scale,
+                target_size_mb=12800,  # 51200,
             )
         )
 
         # Formatting to 5D block shape
         block_shape = ([1] * (5 - len(block_shape))) + block_shape
 
-        new_scale_factor = (
-            [1] * (len(previous_scale.shape) - len(scale_factor))
-        ) + scale_factor
+        new_scale_factor = ([1] * (len(previous_scale.shape) - len(scale_factor))) + scale_factor
 
         previous_scale_pyramid = compute_pyramid(
             data=previous_scale,
@@ -785,13 +753,8 @@ def compute_multiscale(
         written_pyramid.append(array_to_write)
 
     end_time = time()
-    print(f"Time to write the dataset: {end_time - start_time}")
-    print(f"Written pyramid: {written_pyramid}")
-
-    try:
-        client.shutdown()
-    except Exception as e:
-        print(f"Handling error {e} when closing client.")
+    logger.info(f"Time to write the dataset: {end_time - start_time}")
+    logger.debug(f"Written pyramid: {written_pyramid}")
 
 
 def producer(
@@ -824,7 +787,6 @@ def producer(
 
     logger.info(f"Starting producer queue: {worker_pid}")
     for i, sample in enumerate(zarr_data_loader):
-
         producer_queue.put(
             {
                 "i": i,
@@ -834,13 +796,13 @@ def producer(
             },
             block=True,
         )
-        logger.info(f"[+] Worker {worker_pid} setting block {i}")
+        logger.debug(f"[+] Worker {worker_pid} setting block {i}")
 
     for i in range(n_consumers):
         producer_queue.put(None, block=True)
 
     # zarr_dataset.lazy_data.shape
-    logger.info(f"[+] Worker {worker_pid} -> Producer finished producing data.")
+    logger.debug(f"[+] Worker {worker_pid} -> Producer finished producing data.")
 
 
 def consumer(
@@ -870,7 +832,7 @@ def consumer(
     """
     logger = worker_params["logger"]
     worker_pid = os.getpid()
-    logger.info(f"Starting consumer worker -> {worker_pid}")
+    logger.debug(f"Starting consumer worker -> {worker_pid}")
 
     # Setting initial wait so all processes could be created
     # And producer can start generating data
@@ -883,10 +845,10 @@ def consumer(
         streamed_dict = queue.get(block=True)
 
         if streamed_dict is None:
-            logger.info(f"[-] Worker {worker_pid} -> Turn off signal received...")
+            logger.debug(f"[-] Worker {worker_pid} -> Turn off signal received...")
             break
 
-        logger.info(
+        logger.debug(
             f"[-] Worker {worker_pid} -> Consuming {streamed_dict['i']} - {streamed_dict['data'].shape} - Super chunk val: {zarr_dataset.curr_super_chunk_pos.value} - internal slice sum: {total_samples}"
         )
 
@@ -903,7 +865,7 @@ def consumer(
             logger=logger,
         )
 
-    logger.info(f"[-] Worker {worker_pid} -> Consumer finished consuming data.")
+    logger.debug(f"[-] Worker {worker_pid} -> Consumer finished consuming data.")
 
 
 def destripe_zarr(
@@ -978,7 +940,7 @@ def destripe_zarr(
         raise ValueError(f"Provided workers {n_workers} > current workers {co_cpus}")
 
     logger = utils.create_logger(output_log_path=results_folder)
-    logger.info(f"{20*'='} Large-Scale Zarr Destriping {20*'='}")
+    logger.info(f"{20 * '='} Large-Scale Zarr Destriping {20 * '='}")
 
     logger.info(f"Processing dataset {dataset_path}")
 
@@ -1009,10 +971,12 @@ def destripe_zarr(
     # The device we will use and pinning memory to speed things up
     device = None
 
-    pin_memory = True
+    pin_memory = device is not None
     if device is not None:
-        pin_memory = False
         multiprocessing.set_start_method("spawn", force=True)
+        logger.debug(
+            f"Setting start method to spawn for device {device} and pin_memory {pin_memory}"
+        )
 
     # Getting overlap prediction chunksize
     overlap_prediction_chunksize = (
@@ -1020,9 +984,7 @@ def destripe_zarr(
         0,
         0,
     )
-    logger.info(
-        f"Overlap size based on cell diameter * 2: {overlap_prediction_chunksize}"
-    )
+    logger.info(f"Overlap size based on cell diameter * 2: {overlap_prediction_chunksize}")
 
     lazy_data = (
         ImageReaderFactory()
@@ -1080,11 +1042,9 @@ def destripe_zarr(
         np.prod(zarr_dataset.prediction_chunksize) * batch_size
     )
     samples_per_iter = n_workers * batch_size
-    logger.info(
-        f"Number of batches: {total_batches} - Samples per iteration: {samples_per_iter}"
-    )
+    logger.info(f"Number of batches: {total_batches} - Samples per iteration: {samples_per_iter}")
 
-    logger.info(f"{20*'='} Starting combination of gradients {20*'='}")
+    logger.info(f"{20 * '='} Starting combination of gradients {20 * '='}")
     start_time = time()
 
     # Setting exec workers to CO CPUs
@@ -1097,7 +1057,6 @@ def destripe_zarr(
     retrospective = False if flatfield is None else True
 
     if os.path.exists(derivatives_path):
-
         # Reading darkfield
         darkfield_path = str(derivatives_path.joinpath("DarkMaster_cropped.tif"))
         logger.info(f"Loading darkfield from path: {darkfield_path}")
@@ -1181,7 +1140,6 @@ def destripe_zarr(
         output_zarr=output_zarr,
         zarr_group=new_channel_group,
         scale_factor=scale_factor,
-        n_workers=co_cpus,
         voxel_size=[
             xyz_resolution[-1],
             xyz_resolution[-2],
@@ -1189,7 +1147,6 @@ def destripe_zarr(
         ],
         image_name=dataset_name,
         n_levels=3,
-        threads_per_worker=1,
     )
     multiscale_time_end = time()
 
@@ -1231,9 +1188,7 @@ def destripe_channel(
     tile_paths = []
     if utils.is_s3_path(str(channel_dataset)):
         bucket_name, prefix = utils.split_s3_path(str(channel_dataset))
-        tile_paths = utils.list_s3_folders(
-            bucket=bucket_name, prefix=prefix, extension=".ome.zarr"
-        )
+        tile_paths = utils.list_s3_folders(bucket=bucket_name, prefix=prefix, extension=".ome.zarr")
 
         tile_paths = [f"{channel_dataset}/{tile_path}" for tile_path in tile_paths]
 
@@ -1243,9 +1198,7 @@ def destripe_channel(
 
     for tile_path in tile_paths:
         tile_path_parsed = PurePath(tile_path)
-        output_folder = destriped_data_folder.joinpath(
-            f"{channel_name}/{tile_path_parsed.name}"
-        )
+        output_folder = destriped_data_folder.joinpath(f"{channel_name}/{tile_path_parsed.name}")
         print(
             f"Processing {tile_path} - writing to: {output_folder} - derivatives: {derivatives_path}"
         )

@@ -1,21 +1,34 @@
 """Runs the destriping algorithm"""
 
+import argparse
+import logging
 import os
-from datetime import datetime
+import shutil
+import time
+from datetime import datetime, timezone
 from glob import glob
-from pathlib import Path, PurePath
-from time import time
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 import dask
 import numpy as np
 import tifffile as tif
-from aind_data_schema.core.processing import (DataProcess, PipelineProcess,
-                                              Processing, ProcessName)
+from aind_data_schema.components.identifiers import Code
+from aind_data_schema.core.processing import DataProcess, ProcessName, ProcessStage
+from aind_smartspim_destripe import (
+    __maintainers__,
+    __pipeline_name__,
+    __pipeline_version__,
+    __title__,
+    __url__,
+    __version__,
+    zarr_destriper,
+)
+from aind_smartspim_destripe.utils import metadata_compat, utils
+from log_schema import setup_logging
 from natsort import natsorted
 
-from aind_smartspim_destripe import __version__, zarr_destriper
-from aind_smartspim_destripe.utils import utils
+logger = logging.getLogger(__name__)
 
 
 def get_data_config(
@@ -52,132 +65,15 @@ def get_data_config(
     # Doing this because of Code Ocean, ideally we would have
     # a single dataset in the pipeline
 
-    derivatives_dict = utils.read_json_as_dict(
-        f"{data_folder}/{processing_manifest_path}"
-    )
-    data_description_dict = utils.read_json_as_dict(
-        f"{data_folder}/{data_description_path}"
-    )
+    derivatives_dict = utils.read_json_as_dict(f"{data_folder}/{processing_manifest_path}")
+    data_description_dict = utils.read_json_as_dict(f"{data_folder}/{data_description_path}")
 
     smartspim_dataset = data_description_dict["name"]
 
     return derivatives_dict, smartspim_dataset
 
 
-def generate_data_processing(
-    channel_name: str,
-    destripe_version: str,
-    destripe_config: dict,
-    start_time: datetime,
-    end_time: datetime,
-    output_directory: str,
-):
-    """
-    Generates a destriping data processing
-    for the processed channel.
-
-    Paramters
-    -----------
-    channel_name: str
-        SmartSPIM channel to process
-
-    destripe_version: str
-        Destriping version
-
-    input_path: str
-        Path where the images are located
-
-    output_path: str
-        Path where the images are stored
-
-    destripe_config: dict
-        Dictionary with the configuration
-        for the destriping algorithm
-
-    note_shadow_correction: str
-        Shadow correction notes
-
-    start_time: datetime
-        Time the destriping process
-        started
-
-    end_time: datetime
-        Time the destriping process
-        ended
-
-    output_directory: str
-        Path where we want to store the
-        processing manifest
-
-    """
-    output_directory = os.path.abspath(output_directory)
-
-    if not os.path.exists(output_directory):
-        raise FileNotFoundError(
-            f"Please, check that this folder exists {output_directory}"
-        )
-
-    input_path = destripe_config["input_path"]
-    output_path = destripe_config["output_path"]
-
-    note_shadow_correction = "Applying the flats that come from the microscope"
-
-    if destripe_config.get("retrospective"):
-        note_shadow_correction = """The flats were computed from the data \
-            with basicpy, these were applied with the destriping algorithm \
-            and with the current dark from the microscope.
-            """
-
-    del destripe_config["input_path"]
-    del destripe_config["output_path"]
-
-    pipeline_process = PipelineProcess(
-        data_processes=[
-            DataProcess(
-                name=ProcessName.IMAGE_DESTRIPING,
-                software_version=destripe_version,
-                start_date_time=start_time,
-                end_date_time=end_time,
-                input_location=str(input_path),
-                output_location=str(output_path),
-                code_version=destripe_version,
-                code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
-                parameters=destripe_config,
-                notes=f"Destriping for channel {channel_name} in zarr format",
-            ),
-            DataProcess(
-                name=ProcessName.IMAGE_FLAT_FIELD_CORRECTION,
-                software_version=destripe_version,
-                start_date_time=start_time,
-                end_date_time=end_time,
-                input_location=str(input_path),
-                output_location=str(output_path),
-                code_version=destripe_version,
-                code_url="https://github.com/AllenNeuralDynamics/aind-smartspim-destripe",
-                parameters={},
-                notes=note_shadow_correction,
-            ),
-        ],
-        processor_full_name="Camilo Laiton",
-        pipeline_url="https://github.com/AllenNeuralDynamics/aind-smartspim-pipeline",
-        pipeline_version="3.0.0",
-    )
-
-    processing = Processing(
-        processing_pipeline=pipeline_process,
-        notes="This processing only contains metadata about destriping \
-        and needs to be compiled with other steps at the end",
-    )
-
-    with open(
-        f"{output_directory}/image_destriping_{channel_name}_processing.json", "w"
-    ) as f:
-        f.write(processing.model_dump_json(indent=3))
-
-
-def get_microscope_flats(
-    channel_name: str, derivatives_folder: str
-) -> Tuple[np.ndarray]:
+def get_microscope_flats(channel_name: str, derivatives_folder: str) -> Tuple[np.ndarray]:
     """
     Gets the microscope flats
 
@@ -247,35 +143,15 @@ def get_microscope_flats(
         # metadata.json to know which tile is in which laser
         flatfield = [
             tif.imread(g)
-            for g in natsorted(
-                glob(f"{derivatives_folder}/FlatReal{curr_emision_wave}_*.tif")
-            )
+            for g in natsorted(glob(f"{derivatives_folder}/FlatReal{curr_emision_wave}_*.tif"))
             if os.path.exists(g)
         ]
 
         # reading flatfields, we should have 2, one per brain hemisphere
         if len(flatfield) != 2:
-            raise ValueError(
-                f"Error while reading the microscope flatfields: {flatfield}"
-            )
+            raise ValueError(f"Error while reading the microscope flatfields: {flatfield}")
 
     return flatfield, metadata_json
-
-
-def get_resolution(acquisition_config):
-    # Grabbing a tile with metadata from acquisition - we assume all dataset
-    # was acquired with the same resolution
-    tile_coord_transforms = acquisition_config["tiles"][0]["coordinate_transformations"]
-
-    scale_transform = [
-        x["scale"] for x in tile_coord_transforms if x["type"] == "scale"
-    ][0]
-
-    x = float(scale_transform[0])
-    y = float(scale_transform[1])
-    z = float(scale_transform[2])
-
-    return x, y, z
 
 
 def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
@@ -305,157 +181,292 @@ def validate_capsule_inputs(input_elements: List[str]) -> List[str]:
     return missing_inputs
 
 
+def _parse_args() -> argparse.Namespace:
+    """
+    Parses the arguments to the capsule
+    """
+    ap = argparse.ArgumentParser(
+        prog="run_capsule.py",
+        description="SmartSPIM pipeline preprocessing.",
+    )
+    ap.add_argument(
+        "bucket_name",
+        nargs="?",
+        default=None,
+        metavar="BUCKET_NAME",
+        help="S3 bucket name.",
+    )
+    return ap.parse_args()
+
+
 def run():
     """Validates parameters and runs the destriper"""
+    args = _parse_args()
 
-    data_folder = Path(os.path.abspath("../data"))
-    results_folder = Path(os.path.abspath("../results"))
-    scratch_folder = Path(os.path.abspath("../scratch"))
+    process_name = f"{__title__}"
 
-    # It is assumed that these files
-    # will be in the data folder
-    required_input_elements = [
-        f"{data_folder}/acquisition.json",
-        f"{data_folder}/data_description.json",
-    ]
+    setup_logging(
+        model={
+            "pipeline_name": __pipeline_name__,
+            "process_name": process_name,
+            "software_name": __title__,
+            "software_version": __version__,
+        }
+    )
 
-    missing_files = validate_capsule_inputs(required_input_elements)
+    start_time = time.monotonic()
+    dataset_name = None
 
-    print(f"Data in folder: {list(data_folder.glob('*'))}")
+    try:
+        data_folder = Path(os.path.abspath("../data"))
+        results_folder = Path(os.path.abspath("../results"))
+        scratch_folder = Path(os.path.abspath("../scratch"))
 
-    if len(missing_files):
-        raise ValueError(
-            f"We miss the following files in the capsule input: {missing_files}"
+        logger.info(
+            "Destriping started",
+            extra={
+                "event_type": "stage_start",
+                "data_folder": str(data_folder),
+                "results_folder": str(results_folder),
+            },
         )
 
-    dask.config.set({"distributed.worker.memory.terminate": False})
-
-    # Make this a parameter
-    bucket_name = "aind-open-data"
-
-    acquisition_path = data_folder.joinpath("acquisition.json")
-    acquisition_dict = utils.read_json_as_dict(acquisition_path)
-
-    data_description_path = data_folder.joinpath("data_description.json")
-    data_description_dict = utils.read_json_as_dict(data_description_path)
-
-    if not len(acquisition_dict):
-        raise ValueError(
-            f"Not able to read acquisition metadata from {acquisition_path}"
-        )
-
-    if not len(data_description_dict):
-        raise ValueError(
-            f"Not able to read data description metadata from {data_description_path}"
-        )
-
-    voxel_resolution = get_resolution(acquisition_dict)
-
-    derivatives_path = data_folder.joinpath("derivatives")
-
-    print(f"Derivatives path data: {list(derivatives_path.glob('*'))}")
-
-    channels = None
-    dataset_name = data_description_dict.get("name")
-
-    # Dispatcher generates preprocess_{channel_name}.json files
-    # These are split to instantiate a single machine per channel
-    # Find channel configuration files using multiple patterns
-    channel_config_paths = list(data_folder.glob("preprocess_*.json"))
-    
-    # The connection is default, so we can pick the first config
-    BASE_PATH = data_folder
-    if Path(channel_config_paths[0]).suffix == ".json":
-        BASE_PATH = f"s3://{bucket_name}/"
-
-    if utils.is_s3_path(str(BASE_PATH)):
-        prefix = f"{dataset_name}/SPIM"
-        BASE_PATH = f"{BASE_PATH}{prefix}"
-
-        channel_config = utils.read_json_as_dict(channel_config_paths[0])
-        channel_to_process = channel_config.get('channel')
-
-        if not channel_to_process:
-            raise ValueError(f"Please, provide a channel to process. Config: {channel_config_paths[0]}")
-
-        channels = [
-            i
-            for i in utils.list_s3_folders(bucket=bucket_name, prefix=prefix)
-            if str(channel_to_process) in i
-        ]
-    else:
-        BASE_PATH = Path(BASE_PATH)
-        channels = [
-            folder.name
-            for folder in list(BASE_PATH.glob("Ex_*_Em_*"))
-            if os.path.isdir(folder)
+        # It is assumed that these files
+        # will be in the data folder
+        required_input_elements = [
+            data_folder / "acquisition.json",
+            data_folder / "data_description.json",
         ]
 
-    laser_tiles_path = data_folder.joinpath("laser_tiles.json")
+        missing_files = validate_capsule_inputs(required_input_elements)
 
-    if not laser_tiles_path.exists():
-        raise FileNotFoundError(f"Path {laser_tiles_path} does not exist!")
+        logger.debug(f"Data in folder: {list(data_folder.glob('*'))}")
 
-    laser_tiles = utils.read_json_as_dict(str(laser_tiles_path))
+        if missing_files:
+            raise ValueError(f"We miss the following files in the capsule input: {missing_files}")
 
-    print(f"Laser tiles: {laser_tiles}")
+        dask.config.set({"distributed.worker.memory.terminate": False})
 
-    if len(channels):
+        acquisition_path = data_folder.joinpath("acquisition.json")
+        acquisition_dict = utils.read_json_as_dict(acquisition_path)
 
-        for channel_name in channels:
-            estimated_channel_flats = natsorted(
-                list(data_folder.glob(f"estimated_flat_laser_{channel_name}*.tif"))
+        data_description_path = data_folder.joinpath("data_description.json")
+        data_description_dict = utils.read_json_as_dict(data_description_path)
+
+        if not len(acquisition_dict):
+            raise ValueError(f"Not able to read acquisition metadata from {acquisition_path}")
+
+        if not len(data_description_dict):
+            raise ValueError(
+                f"Not able to read data description metadata from {data_description_path}"
             )
 
-            if not len(estimated_channel_flats):
-                raise FileNotFoundError(
-                    f"Error while retrieving flats from the data folder for channel {channel_name}"
+        voxel_resolution = metadata_compat.get_voxel_resolution(acquisition_dict)
+
+        derivatives_path = data_folder.joinpath("derivatives")
+
+        logger.debug(f"Derivatives path data: {list(derivatives_path.glob('*'))}")
+
+        channels = None
+        dataset_name = data_description_dict.get("name")
+
+        # Dispatcher generates preprocess_{channel_name}.json files
+        # These are split to instantiate a single machine per channel
+        # Find channel configuration files using multiple patterns
+        channel_config_paths = list(data_folder.glob("preprocess_*.json"))
+
+        if not channel_config_paths:
+            raise FileNotFoundError("No preprocess_*.json configuration file found in data folder")
+
+        # Extract channels from preprocess_<channel>.json
+        channel_names = [path.stem.removeprefix("preprocess_") for path in channel_config_paths]
+
+        # Getting bucket name
+        bucket_name = args.bucket_name
+        base_path = data_folder
+
+        if bucket_name:
+            prefix = f"{dataset_name}/SPIM"
+            base_path = f"s3://{bucket_name}/{prefix}"
+
+            channels = [
+                folder
+                for folder in utils.list_s3_folders(
+                    bucket=bucket_name,
+                    prefix=prefix,
+                )
+                if any(folder.endswith(channel) for channel in channel_names)
+            ]
+        else:
+            channels = [folder.name for folder in base_path.glob("Ex_*_Em_*") if folder.is_dir()]
+
+        laser_tiles_path = data_folder.joinpath("laser_tiles.json")
+
+        if not laser_tiles_path.exists():
+            raise FileNotFoundError(f"Path {laser_tiles_path} does not exist!")
+
+        laser_tiles = utils.read_json_as_dict(str(laser_tiles_path))
+
+        logger.debug(f"Laser tiles: {laser_tiles}")
+
+        logger.info(
+            f"Destriping configuration resolved for dataset {dataset_name}",
+            extra={
+                "dataset_name": dataset_name,
+                "derivatives_path": str(derivatives_path),
+                "base_path": str(base_path),
+                "channels": channels,
+                "voxel_resolution": voxel_resolution,
+            },
+        )
+
+        data_processes = []
+        cpu_cores = utils.get_cpu_limit()
+
+        if len(channels):
+            for channel_name in channels:
+                estimated_channel_flats = natsorted(
+                    list(data_folder.glob(f"estimated_flat_laser_{channel_name}*.tif"))
                 )
 
-            parameters = {
-                "input_path": f"{BASE_PATH}/{channel_name}",
-                "output_path": str(results_folder),
-                "no_cells_config": {
-                    "wavelet": "db3",
-                    "level": None,
-                    "sigma": 128,
-                    "max_threshold": 12,
-                },
-                "cells_config": {
-                    "wavelet": "db3",
-                    "level": None,
-                    "sigma": 64,
-                    "max_threshold": 3,
-                },
-                "retrospective": True,  # Default behavior
-            }
+                if not len(estimated_channel_flats):
+                    raise FileNotFoundError(
+                        f"Error while retrieving flats from the data folder for channel {channel_name}"
+                    )
 
-            destriping_start_time = time()
+                parameters = {
+                    "input_path": f"{base_path}/{channel_name}",
+                    "output_path": str(results_folder),
+                    "no_cells_config": {
+                        "wavelet": "db3",
+                        "level": None,
+                        "sigma": 128,
+                        "max_threshold": 12,
+                    },
+                    "cells_config": {
+                        "wavelet": "db3",
+                        "level": None,
+                        "sigma": 64,
+                        "max_threshold": 3,
+                    },
+                    "retrospective": True,  # Default behavior
+                }
 
-            zarr_destriper.destripe_channel(
-                zarr_dataset_path=BASE_PATH,
-                channel_name=channel_name,
-                results_folder=results_folder,
-                derivatives_path=derivatives_path,
-                xyz_resolution=voxel_resolution,
-                estimated_channel_flats=estimated_channel_flats,
-                laser_tiles=laser_tiles,
-                parameters=parameters,
+                note_shadow_correction = "Applying the flats that come from the microscope"
+
+                if parameters.get("retrospective"):
+                    note_shadow_correction = """The flats were computed from the data \
+                    with basicpy, these were applied with the destriping algorithm \
+                    and with the current dark from the microscope.
+                    """
+
+                channel_start_time = datetime.now(timezone.utc)
+                resource_monitor = utils.ResourceMonitor(interval_seconds=30.0).start()
+
+                zarr_destriper.destripe_channel(
+                    zarr_dataset_path=base_path,
+                    channel_name=channel_name,
+                    results_folder=results_folder,
+                    derivatives_path=derivatives_path,
+                    xyz_resolution=voxel_resolution,
+                    estimated_channel_flats=estimated_channel_flats,
+                    laser_tiles=laser_tiles,
+                    parameters=parameters,
+                )
+
+                resource_monitor.stop()
+                channel_end_time = datetime.now(timezone.utc)
+
+                channel_resources = resource_monitor.to_resource_usage(cpu_cores=cpu_cores)
+                channel_code = Code(url=__url__, name=__title__, version=__version__)
+                channel_duration_seconds = (channel_end_time - channel_start_time).total_seconds()
+
+                data_processes.append(
+                    DataProcess(
+                        process_type=ProcessName.IMAGE_DESTRIPING,
+                        name=f"Image destriping - {channel_name}",
+                        stage=ProcessStage.PROCESSING,
+                        code=channel_code,
+                        experimenters=__maintainers__,
+                        pipeline_name=__pipeline_name__,
+                        start_date_time=channel_start_time,
+                        end_date_time=channel_end_time,
+                        output_path=str(results_folder),
+                        output_parameters={
+                            k: v
+                            for k, v in parameters.items()
+                            if k not in ("input_path", "output_path")
+                        }
+                        | {
+                            "input_location": str(parameters["input_path"]),
+                            "duration_seconds": channel_duration_seconds,
+                        },
+                        resources=channel_resources,
+                        notes=f"Destriping for channel {channel_name} in zarr format",
+                    )
+                )
+
+                data_processes.append(
+                    DataProcess(
+                        process_type=ProcessName.IMAGE_FLAT_FIELD_CORRECTION,
+                        name=f"Flatfield correction - {channel_name}",
+                        stage=ProcessStage.PROCESSING,
+                        code=channel_code,
+                        experimenters=__maintainers__,
+                        pipeline_name=__pipeline_name__,
+                        start_date_time=channel_start_time,
+                        end_date_time=channel_end_time,
+                        output_path=str(results_folder),
+                        output_parameters={
+                            "input_location": str(parameters["input_path"]),
+                            "duration_seconds": channel_duration_seconds,
+                        },
+                        resources=channel_resources,
+                        notes=note_shadow_correction,
+                    )
+                )
+
+        else:
+            logger.warning(f"No channels to process in {base_path}")
+
+        utils.generate_processing(
+            data_processes=data_processes,
+            dest_processing=results_folder,
+            pipeline_name=__pipeline_name__,
+            pipeline_version=__pipeline_version__,
+            pipeline_url="https://github.com/AllenNeuralDynamics/aind-smartspim-pipeline",
+        )
+
+        processing_json = results_folder / "processing.json"
+        for channel_name in channels:
+            shutil.copy(
+                str(processing_json),
+                str(results_folder / f"image_destriping_{channel_name}_processing.json"),
             )
 
-            destriping_end_time = time()
+        duration_seconds = round(time.monotonic() - start_time, 3)
+        logger.info(
+            "Destriping completed",
+            extra={
+                "event_type": "stage_complete",
+                "dataset_name": dataset_name,
+                "duration_seconds": duration_seconds,
+            },
+        )
 
-            generate_data_processing(
-                channel_name=channel_name,
-                destripe_version=__version__,
-                destripe_config=parameters,
-                start_time=destriping_start_time,
-                end_time=destriping_end_time,
-                output_directory=results_folder,
-            )
-
-    else:
-        print(f"No channels to process in {BASE_PATH}")
+    except Exception as e:
+        duration_seconds = round(time.monotonic() - start_time, 3)
+        logger.error(
+            "Destriping failed",
+            exc_info=True,
+            extra={
+                "event_type": "stage_failure",
+                "error": f"{type(e).__name__}: {e}",
+                "dataset_name": dataset_name,
+                "duration_seconds": duration_seconds,
+            },
+        )
+        raise
 
 
 if __name__ == "__main__":

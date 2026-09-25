@@ -8,8 +8,9 @@ import multiprocessing
 import os
 import platform
 import re
+import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urlparse
@@ -17,6 +18,14 @@ from urllib.parse import urlparse
 import boto3
 import matplotlib.pyplot as plt
 import psutil
+from aind_data_schema.components.identifiers import Code
+from aind_data_schema.core.processing import (
+    DataProcess,
+    Processing,
+    ResourceTimestamped,
+    ResourceUsage,
+)
+from aind_data_schema_models.units import MemoryUnit
 from natsort import natsorted
 
 
@@ -138,40 +147,23 @@ def stop_child_process(process: multiprocessing.Process):
 
 def create_logger(output_log_path: str) -> logging.Logger:
     """
-    Creates a logger that generates
-    output logs to a specific path.
+    Returns the module logger.
+
+    Logging is configured globally via logschema's setup_logging()
+    in the entry point, so this just returns a plain logger handle
+    without touching the root logger configuration.
 
     Parameters
     ------------
     output_log_path: PathLike
-        Path where the log is going
-        to be stored
+        Unused. Kept for backwards compatibility with callers.
 
     Returns
     -----------
     logging.Logger
-        Created logger pointing to
-        the file path.
+        The module logger.
     """
-    CURR_DATE_TIME = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    LOGS_FILE = f"{output_log_path}/destripe_log_{CURR_DATE_TIME}.log"
-
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s - %(levelname)s : %(message)s",
-        datefmt="%Y-%m-%d %H:%M",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(LOGS_FILE, "a"),
-        ],
-        force=True,
-    )
-
-    logging.disable("DEBUG")
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.DEBUG)
-
-    return logger
+    return logging.getLogger(__name__)
 
 
 def get_size(bytes, suffix: str = "B") -> str:
@@ -211,7 +203,7 @@ def get_cpu_limit():
 
     # Trying to get CPU cores from Code Ocean
     if co_cpus:
-        return co_cpus
+        return int(co_cpus)
     if aws_batch_job_id:
         return 1
 
@@ -220,7 +212,7 @@ def get_cpu_limit():
 
     # Total cpus in node SLURM_CPUS_ON_NODE
     if slurm_cpus:
-        return slurm_cpus
+        return int(slurm_cpus)
 
     try:
         with open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us") as fp:
@@ -230,7 +222,7 @@ def get_cpu_limit():
 
         container_cpus = cfs_quota_us // cfs_period_us
 
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         container_cpus = 0
 
     # For physical machine, the `cfs_quota_us` could be '-1'
@@ -313,9 +305,7 @@ def print_system_information(logger: logging.Logger):
     logger.info(f"SLURM ID: {slurm_id}")
     logger.info(f"SLURM GPUs: {os.environ.get('SLURM_JOB_GPUS')}")
     logger.info(f"SLURM CPUs: {os.environ.get('SLURM_JOB_CPUS_PER_NODE')}")
-    logger.info(
-        f"SLURM variables {[( k, v ) for k, v in os.environ.items() if 'SLURM' in k]}"
-    )
+    logger.info(f"SLURM variables {[(k, v) for k, v in os.environ.items() if 'SLURM' in k]}")
 
     logger.info(f"{sep} System Information {sep}")
     uname = platform.uname()
@@ -330,9 +320,7 @@ def print_system_information(logger: logging.Logger):
     logger.info(f"{sep} Boot Time {sep}")
     boot_time_timestamp = psutil.boot_time()
     bt = datetime.fromtimestamp(boot_time_timestamp)
-    logger.info(
-        f"Boot Time: {bt.year}/{bt.month}/{bt.day} {bt.hour}:{bt.minute}:{bt.second}"
-    )
+    logger.info(f"Boot Time: {bt.year}/{bt.month}/{bt.day} {bt.hour}:{bt.minute}:{bt.second}")
 
     # CPU info
     logger.info(f"{sep} CPU Info {sep}")
@@ -416,8 +404,7 @@ def read_image_directory_structure(folder_dir: str, channel_regex: str) -> dict:
         [
             folder_dir.joinpath(folder)
             for folder in os.listdir(folder_dir)
-            if os.path.isdir(folder_dir.joinpath(folder))
-            and re.search(channel_regex, str(folder))
+            if os.path.isdir(folder_dir.joinpath(folder)) and re.search(channel_regex, str(folder))
         ]
     )
 
@@ -439,14 +426,10 @@ def read_image_directory_structure(folder_dir: str, channel_regex: str) -> dict:
                 directory_structure[channel_paths[channel_idx]][col] = {}
 
                 for row in rows:
-                    possible_row = (
-                        channel_paths[channel_idx].joinpath(col).joinpath(row)
-                    )
+                    possible_row = channel_paths[channel_idx].joinpath(col).joinpath(row)
 
                     if os.path.isdir(possible_row):
-                        directory_structure[channel_paths[channel_idx]][col][
-                            row
-                        ] = images
+                        directory_structure[channel_paths[channel_idx]][col][row] = images
 
     return directory_structure
 
@@ -618,3 +601,135 @@ def split_s3_path(s3_path: str):
     # remove leading slash
     prefix = parsed.path.lstrip("/")
     return bucket, prefix
+
+
+class ResourceMonitor:
+    """
+    Background sampler for CPU and RAM usage during a processing step.
+
+    Samples are collected on a separate thread at a fixed interval and can be
+    turned into an `aind_data_schema.core.processing.ResourceUsage` once the
+    step is finished.
+    """
+
+    def __init__(self, interval_seconds: Optional[float] = 1.0):
+        """
+        Initializes the ResourceMonitor.
+
+        Parameters
+        ----------
+        interval_seconds: Optional[float]
+            Time interval in seconds between resource usage samples. Default is 1 second.
+        """
+        self._interval = interval_seconds
+        self._cpu_usage = []
+        self._ram_usage = []
+        self._stop_event = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self) -> None:
+        """Background thread method for sampling CPU and RAM usage."""
+
+        while not self._stop_event.is_set():
+            now = datetime.now(timezone.utc)
+            self._cpu_usage.append(
+                ResourceTimestamped(timestamp=now, usage=psutil.cpu_percent(interval=None))
+            )
+            self._ram_usage.append(
+                ResourceTimestamped(timestamp=now, usage=psutil.virtual_memory().percent)
+            )
+            self._stop_event.wait(self._interval)
+
+    def start(self) -> "ResourceMonitor":
+        """Starts the background sampling thread."""
+        psutil.cpu_percent(interval=None)  # discard first call, which always reads 0
+        self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        """Stops the background sampling thread."""
+        self._stop_event.set()
+        self._thread.join(timeout=self._interval + 1)
+
+    def __enter__(self) -> "ResourceMonitor":
+        """Context manager entry point to start resource monitoring."""
+        return self.start()
+
+    def __exit__(self, *exc_info) -> None:
+        """Context manager exit point to stop resource monitoring."""
+        self.stop()
+
+    def to_resource_usage(self, cpu_cores: Optional[int] = None) -> ResourceUsage:
+        """
+        Builds an `aind_data_schema.core.processing.ResourceUsage` from the
+        samples collected so far, plus static host information.
+
+        Parameters
+        ----------
+        cpu_cores: Optional[int]
+            Number of CPU cores available to the process.
+
+        Returns
+        -------
+        ResourceUsage
+            Resource usage record for a `DataProcess`.
+        """
+
+        return ResourceUsage(
+            os=platform.system(),
+            architecture=platform.machine(),
+            cpu_cores=cpu_cores,
+            system_memory=round(psutil.virtual_memory().total / (1024**3), 2),
+            system_memory_unit=MemoryUnit.GB,
+            ram_unit=MemoryUnit.GB,
+            cpu_usage=self._cpu_usage,
+            ram_usage=self._ram_usage,
+        )
+
+
+def generate_processing(
+    data_processes: List[DataProcess],
+    dest_processing: str,
+    pipeline_name: str,
+    pipeline_version: str,
+    pipeline_url: str,
+):
+    """
+    Generates the processing metadata for the output folder.
+
+    Parameters
+    ------------------------
+
+    data_processes: List[DataProcess]
+        List with the processes applied in the pipeline.
+
+    dest_processing: PathLike
+        Path where the processing file will be placed.
+
+    pipeline_name: str
+        Name of the overall pipeline this processing
+        step belongs to.
+
+    pipeline_version: str
+        Version of the overall pipeline.
+
+    pipeline_url: str
+        URL of the overall pipeline's repository.
+
+    """
+    pipelines = [
+        Code(
+            url=pipeline_url,
+            name=pipeline_name,
+            version=pipeline_version,
+        )
+    ]
+
+    processing = Processing.create_with_sequential_process_graph(
+        data_processes=data_processes,
+        pipelines=pipelines,
+        notes="This processing only contains metadata about destriping \
+            and needs to be compiled with other steps at the end",
+    )
+
+    processing.write_standard_file(output_directory=dest_processing)

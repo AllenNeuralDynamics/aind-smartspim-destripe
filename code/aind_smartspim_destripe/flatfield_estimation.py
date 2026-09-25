@@ -41,7 +41,6 @@ def shading_correction(
         for further post-processing.
     """
     shading_obj = BaSiC(**shading_parameters)
-    shading_results = []
     shading_obj.fit(images=np.array(slides), fitting_weight=mask)
     shading_results = {
         "flatfield": shading_obj.flatfield,
@@ -109,15 +108,9 @@ def unify_fields(
         msg = "Accepted values are: ['mean', 'median', 'mip']"
         raise NotImplementedError(msg)
 
-    flatfield = flatfield.astype(
-        np.float16
-    )  # np.clip(flatfield, 0, 65535).astype('uint16')
-    darkfield = darkfield.astype(
-        np.float16
-    )  # np.clip(darkfield, 0, 65535).astype('uint16')
-    baseline = baseline.astype(
-        np.float16
-    )  # np.clip(baseline, 0, 65535).astype('uint16')
+    flatfield = flatfield.astype(np.float32)
+    darkfield = darkfield.astype(np.float32)
+    baseline = baseline.astype(np.float32)
 
     return flatfield, darkfield, baseline
 

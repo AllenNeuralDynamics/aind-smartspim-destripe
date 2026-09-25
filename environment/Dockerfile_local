@@ -10,9 +10,9 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Create conda environment and install dependencies
-RUN conda create -y -n destriper python=3.9 && \
+RUN conda create -y -n destriper python=3.10 && \
     conda run -n destriper pip install --no-cache-dir \
-        aind-large-scale-prediction==1.0.0 \
+        git+https://github.com/AllenNeuralDynamics/aind-large-scale-prediction.git@unpinned-versions \
         numpy==1.26.4 \
         scipy==1.13.1 \
         scikit-image==0.24.0 \
@@ -20,14 +20,24 @@ RUN conda create -y -n destriper python=3.9 && \
         PyWavelets==1.6.0 \
         tqdm==4.66.5 \
         pathlib2 \
-        aind-data-schema==1.0.0 \
+        aind-data-schema==2.8.0 \
+        "aind-data-schema-models>=5.7.1,<6" \
         matplotlib==3.9.2 \
         psutil==6.0.0 \
         BaSiCPy==1.1.0 \
         natsort==8.4.0 \
         imageio==2.35.1 \
-        xarray_multiscale==2.1.0 && \
+        xarray_multiscale==2.1.0 \
+        hyperactive==4.6.0 \
+        jax==0.4.23 \
+        jaxlib==0.4.23 \
+        log-schema==0.2.10.dev1 \
+        boto3 \
+        s3fs==2026.6.0 && \
     conda clean -afy
+
+# Adding specific versions of jax, otherwise basicpy will fail
+# hyperactive==4.6.0 fixes https://github.com/peng-lab/BaSiCPy/issues/162
 
 # ========================= #
 #      RUNTIME STAGE       #
@@ -40,7 +50,7 @@ FROM continuumio/miniconda3:23.9.0-0
 LABEL maintainer="Camilo Laiton <camilo.laiton@alleninstitute.org>" \
     org.opencontainers.image.title="Image Preprocessing" \
     org.opencontainers.image.description="Container for flatfield and stripe correction." \
-    org.opencontainers.image.version="0.0.4" \
+    org.opencontainers.image.version="0.0.6" \
     org.opencontainers.image.licenses="MIT"
 
 ARG DEBIAN_FRONTEND=noninteractive
